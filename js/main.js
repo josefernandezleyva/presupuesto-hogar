@@ -18,8 +18,10 @@ import mas from './pantallas/mas.js';
 import maestros from './pantallas/maestros.js';
 import plan from './pantallas/plan.js';
 import inicioSesion from './pantallas/conectar.js';
+import reporte from './pantallas/reporte.js';
+import { procesarCola } from './evidencia.js';
 
-const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, cierre, analisis, ...mas, ...maestros, ...plan, ...inicioSesion };
+const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, cierre, analisis, reporte, ...mas, ...maestros, ...plan, ...inicioSesion };
 const SIN_SESION = new Set(['conectar', 'hogar', 'quien']);
 
 const app = {
@@ -197,6 +199,7 @@ raiz.addEventListener('submit', (ev) => {
 export async function sincronizar(manual = false) {
   try {
     await st.sincronizar();
+    procesarCola().catch(() => {});
     const rech = st.estadoSync.rechazados;
     const nuevos = ops.asegurarRecurrentes() + ops.repararGenerados();
     if (nuevos) await st.sincronizar().catch(() => {});

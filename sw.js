@@ -1,14 +1,14 @@
 // Service worker: guarda la app en el celular para que abra sin conexión.
 // Al publicar una versión nueva, cambia VERSION para que los celulares la descarguen.
 
-const VERSION = 'pp-1.2.0';
+const VERSION = 'pp-1.3.0';
 const ARCHIVOS = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
   './js/main.js', './js/store.js', './js/api.js', './js/demo.js', './js/logic.js', './js/ops.js',
-  './js/util.js', './js/ui.js', './js/tema.js', './js/squircle.js', './js/charts.js', './js/ejemplo.js',
+  './js/util.js', './js/ui.js', './js/tema.js', './js/squircle.js', './js/idb.js', './js/evidencia.js', './js/charts.js', './js/ejemplo.js',
   './js/pantallas/comun.js', './js/pantallas/inicio.js', './js/pantallas/gastos.js', './js/pantallas/registro.js',
   './js/pantallas/cierre.js', './js/pantallas/analisis.js', './js/pantallas/mas.js', './js/pantallas/maestros.js',
-  './js/pantallas/plan.js', './js/pantallas/conectar.js',
+  './js/pantallas/plan.js', './js/pantallas/conectar.js', './js/pantallas/reporte.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'
 ];
 

@@ -36,6 +36,11 @@ export const MENSAJES = {
   sin_conexion: 'Sin conexión. Tus cambios se guardan en el celular y se suben al volver la conexión.',
   tiempo_agotado: 'Google tardó demasiado en responder. Intenta de nuevo.',
   ocupado: 'La hoja está ocupada con otra sincronización. Intenta en unos segundos.',
-  almacenamiento: 'El celular no tiene espacio para guardar los datos de la app.'
+  almacenamiento: 'El celular no tiene espacio para guardar los datos de la app.',
+  permiso_drive: 'Falta autorizar Drive para las fotos: el dueño de la hoja debe abrir el menú Presupuesto > Inicializar y aceptar el permiso.',
+  accion_desconocida: 'La hoja tiene una versión anterior del código: el dueño debe pegar el Code.gs nuevo y publicar una nueva versión.',
+  archivo_grande: 'La foto es demasiado grande.',
+  evidencia_no_existe: 'La foto ya no está en Drive.',
+  no_permitido: 'Esa foto no pertenece a este hogar.'
 };
 export const mensajeError = (e) => MENSAJES[e] || (String(e).startsWith('http_') ? 'Google respondió con un error (' + e + '). Revisa que la aplicación web esté publicada para "Cualquier usuario".' : 'No se pudo sincronizar: ' + e);

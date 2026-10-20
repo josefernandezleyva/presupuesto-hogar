@@ -7,6 +7,8 @@ import { esc, fmt, fmt0, nombreMes, sumarMeses, parseMonto, num, r2, mesActual, 
 import { encabezado, barraMes, tabbar, fila, avatar, icono, alerta, segmentado, dinero0 } from '../ui.js';
 import { lineaSync } from './comun.js';
 import { borrarDemo } from '../demo.js';
+import { pendientes as fotosPendientes, procesarCola, estadoCola } from '../evidencia.js';
+import { mensajeError } from '../api.js';
 import { ACENTOS, MODOS, ESTILOS, MATERIALES, ESQUINAS, leerTema, guardarTema } from '../tema.js';
 
 const flecha = icono('adelante', 18);
@@ -25,6 +27,7 @@ const menu = {
         ${fila({ titulo: 'Cierre de mes', sub: 'Saldos, pagos entre personas y cierre', der: flecha, href: '#/cierre' })}
         ${fila({ titulo: 'Ingresos', sub: `Sueldos de ${esc(nombreMes(mes).toLowerCase())}`, der: flecha, href: '#/ingresos' })}
         ${fila({ titulo: 'Compromisos', sub: 'Cuotas y recurrentes que vienen', der: flecha, href: '#/compromisos' })}
+        ${fila({ titulo: 'Reporte de gastos', sub: 'Filtrar, agrupar y exportar a Excel', der: flecha, href: '#/reporte' })}
       </section>
       <h3 class="dia">Configuración del hogar${admin ? '' : ' (solo lectura)'}</h3>
       <section class="card list">
@@ -176,6 +179,7 @@ const ajustes = {
       <section class="card stack">
         ${lineaSync(c)}
         <button class="btn sec" data-a="sync">${icono('sync', 18)} Sincronizar ahora</button>
+        <div id="fotosCola"></div>
         ${!meta.demo ? `<p class="xs muted ell">Hoja: ${esc(meta.url || '')}</p>` : ''}
       </section>
       ${admin && !meta.demo ? `<h3 class="dia">Sumar otro celular</h3>
@@ -196,10 +200,24 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center">Presupuesto del Hogar · versión 1.0</p>
+      <p class="xs muted center">Presupuesto del Hogar · versión 1.3</p>
     </main>`;
   },
+  montar() {
+    // Fotos que aún esperan subir a Drive (por ejemplo, registradas sin conexión).
+    fotosPendientes().then((n) => {
+      const box = document.getElementById('fotosCola');
+      if (!box || !n) return;
+      box.innerHTML = `<div class="split gap sm"><span>${icono('foto', 16)} ${n} ${n === 1 ? 'foto espera' : 'fotos esperan'} subir a Drive</span><button type="button" class="link" data-a="subir-fotos">Subir ahora</button></div>
+        ${estadoCola.error ? `<p class="xs bad-t">${esc(mensajeError(estadoCola.error))}</p>` : ''}`;
+    }).catch(() => {});
+  },
   acciones: {
+    async 'subir-fotos'(c) {
+      const n = await procesarCola();
+      c.render();
+      c.avisar(n ? `${n} ${n === 1 ? 'foto subida' : 'fotos subidas'}` : (estadoCola.error ? mensajeError(estadoCola.error) : 'Sin conexión: se reintenta después.'), n ? '' : 'bad');
+    },
     'cambiar-persona'(c) {
       c.preguntar({ titulo: '¿Quién usa este celular?', texto: 'Los gastos nuevos aparecerán pagados por esta persona por defecto.',
         botones: L.personas(c.S).map((p) => ({ l: p.nombre, estilo: p.id === c.meta.personaId ? 'pri' : 'sec', fn: (c2) => { st.setMeta({ personaId: p.id }); c2.avisar('Listo'); } })) });

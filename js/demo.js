@@ -1,6 +1,8 @@
 // Servidor de ejemplo: imita al Apps Script guardando en el propio celular.
 // Sirve para probar la app sin conectar una hoja de Google.
 
+import * as idb from './idb.js';
+
 const KEY = 'pp1:demo-servidor';
 
 function leer() {
@@ -9,8 +11,17 @@ function leer() {
 
 export async function manejarDemo(req) {
   await new Promise((r) => setTimeout(r, 150));
+  if (req.action === 'subirEvidencia') {
+    const id = 'demo-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    await idb.guardar('demo', id, { mime: req.mime, data: req.data });
+    return { ok: true, id, url: '' };
+  }
+  if (req.action === 'evidencia') {
+    const ev = await idb.leer('demo', req.id);
+    return ev ? { ok: true, ...ev } : { ok: false, error: 'evidencia_no_existe' };
+  }
   const srv = leer();
-  if (req.action === 'ping') return { ok: true, schema: 1, serverTime: Date.now() };
+  if (req.action === 'ping') return { ok: true, schema: 3, serverTime: Date.now() };
   if (req.action !== 'sync') return { ok: false, error: 'accion_desconocida' };
   const since = Number(req.since) || 0;
   let ts = Math.max(Date.now(), srv.ts + 1);

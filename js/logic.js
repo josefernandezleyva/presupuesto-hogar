@@ -447,3 +447,47 @@ export function progresoPlan(S, plan) {
 }
 
 export { difMeses };
+
+/* --------------------------------------------------------------- Reporte --- */
+
+/**
+ * Gastos registrados entre dos meses, con filtros, y sus totales por categoría, persona y mes.
+ * filtros: { desde, hasta, pagador, cat, estado: 'todos'|'conf'|'prog', tipo, evidencia: ''|'con'|'sin' }
+ */
+export function reporte(S, f) {
+  const estados = f.estado === 'conf' ? [ESTADO.CONF] : f.estado === 'prog' ? [ESTADO.PROG] : [ESTADO.CONF, ESTADO.PROG];
+  const meses = rangoMeses(f.desde, f.hasta);
+  let filas = [];
+  meses.forEach((m) => filas.push(...gastosMes(S, m, estados)));
+  if (f.pagador) filas = filas.filter((g) => g.pagado_por === f.pagador);
+  if (f.cat) filas = filas.filter((g) => g.categoria_id === f.cat);
+  if (f.tipo) filas = filas.filter((g) => tipoGasto(S, g) === f.tipo);
+  if (f.evidencia === 'con') filas = filas.filter((g) => g.evidencia_id);
+  if (f.evidencia === 'sin') filas = filas.filter((g) => !g.evidencia_id);
+  filas.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : String(b.creado_en).localeCompare(String(a.creado_en))));
+
+  const total = r2(filas.reduce((a, g) => a + num(g.monto_soles), 0));
+  const porCat = new Map();
+  const porMes = new Map(meses.map((m) => [m, { mes: m, total: 0, n: 0 }]));
+  const pagado = new Map(), corresponde = new Map(), nPer = new Map();
+  filas.forEach((g) => {
+    const v = num(g.monto_soles);
+    const c = porCat.get(g.categoria_id) || { cat: categoria(S, g.categoria_id) || { id: g.categoria_id, nombre: '(sin categoría)' }, total: 0, n: 0 };
+    c.total += v; c.n++; porCat.set(g.categoria_id, c);
+    const m = porMes.get(g.mes); if (m) { m.total += v; m.n++; }
+    pagado.set(g.pagado_por, (pagado.get(g.pagado_por) || 0) + v);
+    nPer.set(g.pagado_por, (nPer.get(g.pagado_por) || 0) + 1);
+    repartoDeGasto(S, g).forEach((r) => corresponde.set(r.persona_id, (corresponde.get(r.persona_id) || 0) + r.monto_soles));
+  });
+  const pctDe = (v) => (total > 0 ? (v / total) * 100 : 0);
+  const ids = new Set([...pagado.keys(), ...corresponde.keys()]);
+  return {
+    filas, total, n: filas.length, meses: meses.length,
+    promedioMes: r2(total / Math.max(1, meses.length)),
+    conEvidencia: filas.filter((g) => g.evidencia_id).length,
+    porCategoria: [...porCat.values()].map((c) => ({ ...c, total: r2(c.total), pct: pctDe(c.total) })).sort((a, b) => b.total - a.total),
+    porMes: [...porMes.values()].map((m) => ({ ...m, total: r2(m.total) })),
+    porPersona: [...ids].map((id) => ({ persona: persona(S, id) || { id, nombre: '—' }, pagado: r2(pagado.get(id) || 0), corresponde: r2(corresponde.get(id) || 0), n: nPer.get(id) || 0 }))
+      .sort((a, b) => b.pagado - a.pagado)
+  };
+}

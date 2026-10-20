@@ -21,6 +21,8 @@ export const ICON = {
   nota: '<path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h4"/>',
   repetir: '<path d="M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4"/>',
   paleta: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4A4.6 4.6 0 0 0 21 9.9C21 6.1 17 3 12 3z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7" r="1"/>',
+  foto: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  reporte: '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/>',
   copiar: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'
 };
 
@@ -106,7 +108,7 @@ export function hoja(h) {
     ${h.texto ? `<p class="sheet-x">${esc(h.texto)}</p>` : ''}
     ${h.html || ''}
     <div class="sheet-b">${h.botones.map((b, i) => `<button type="button" class="btn ${b.estilo || 'sec'}" data-a="hoja-btn" data-i="${i}">${esc(b.l)}</button>`).join('')}
-    <button type="button" class="btn ghost" data-a="cerrar-hoja">Cancelar</button></div>
+    <button type="button" class="btn ghost" data-a="cerrar-hoja">${esc(h.cancelar || 'Cancelar')}</button></div>
   </div>`;
 }
 

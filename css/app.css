@@ -285,7 +285,32 @@ input[type="date"].inl, input[type="month"].inl { flex: none; }
 .pill .av { border-width: 0; }
 .pill.on { border-color: var(--accent); background: var(--accent-soft); }
 .pill:disabled, .pill.off { opacity: .55; }
-.pill-date input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; border: 0; padding: 0; margin: 0; }
+.pill-date input, .pill-file input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; border: 0; padding: 0; margin: 0; }
+
+/* Mes del gasto */
+.mes-reg { display: flex; align-items: center; justify-content: space-between; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-inner); min-height: 56px; padding: 0 4px; }
+.mes-reg-t { display: flex; flex-direction: column; align-items: center; line-height: 1.2; text-align: center; }
+.mes-reg-t .lbl { margin: 0; font-size: 11px; }
+.mes-reg-t strong { font-family: var(--display); font-size: 18px; font-weight: 600; }
+.mes-reg .btn-ic:disabled { opacity: .35; }
+.center-self { align-self: center; margin-top: -6px; }
+
+/* Porcentaje escrito */
+.pct-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pct-box { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-inner); background: var(--card); }
+.pct-box .sm { display: inline-flex; align-items: center; gap: 6px; color: var(--soft-ink); }
+.pct-box .pct-w { justify-content: flex-end; }
+.pct-box .inl.pct { width: 100%; flex: 1; font-size: 22px; }
+
+/* Foto del gasto */
+.pill-file { cursor: pointer; }
+.ev-card { flex-direction: row; align-items: center; gap: 12px; padding: 10px 12px; }
+.ev-card .row-m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ev-card .link { flex: none; position: relative; }
+.ev-thumb-b { flex: none; padding: 0; border: 0; background: none; border-radius: 10px; overflow: hidden; }
+.ev-thumb { display: flex; width: 56px; height: 56px; object-fit: cover; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); align-items: center; justify-content: center; }
+.ev-full { width: 100%; max-height: 62vh; object-fit: contain; border-radius: var(--r-inner); background: var(--bg); }
+.clip { display: inline-flex; vertical-align: -2px; color: var(--muted); }
 .panel { gap: 10px; }
 .stack-sm { display: flex; flex-direction: column; gap: 6px; }
 .slider { width: 100%; height: 36px; accent-color: var(--accent); }
@@ -403,7 +428,7 @@ input[type="date"].inl, input[type="month"].inl { flex: none; }
 :root[data-estilo="glass"] .toast { bottom: calc(90px + var(--safe-b)); border-radius: 26px; background: rgb(20 26 23 / .78); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); border: 1px solid rgb(255 255 255 / .16); }
 
 /* Encabezado con borde de desplazamiento difuminado y botones redondos de cristal. */
-:root[data-estilo="glass"] .top { background: linear-gradient(var(--bg), color-mix(in srgb, var(--bg) 0%, transparent)); }
+:root[data-estilo="glass"] .top { background: color-mix(in srgb, var(--bg) 74%, transparent); -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5); box-shadow: 0 1px 0 color-mix(in srgb, var(--line) 60%, transparent); }
 :root[data-estilo="glass"] .top .btn-ic:not(:empty) {
   background: rgb(var(--glass-tint) / var(--mat-a)); -webkit-backdrop-filter: blur(var(--mat-blur)) saturate(180%); backdrop-filter: blur(var(--mat-blur)) saturate(180%);
   border: 1px solid var(--glass-edge); box-shadow: inset 0 1px 0 var(--glass-hl), var(--glass-shadow);

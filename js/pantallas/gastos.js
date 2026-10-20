@@ -1,7 +1,7 @@
 import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import { esc, fechaCorta, r2, num } from '../util.js';
-import { barraMes, tabbar, avatar, chips, segmentado, dinero, vacio } from '../ui.js';
+import { barraMes, tabbar, avatar, chips, segmentado, dinero, vacio, icono } from '../ui.js';
 import { puntoCat } from './comun.js';
 
 export default {
@@ -29,7 +29,7 @@ export default {
     const cats = L.categorias(S, { todas: true });
 
     return `<main class="pad has-tabs">
-      ${barraMes(mes, { cerrado })}
+      ${barraMes(mes, { cerrado, derecha: `<a class="btn-ic round" href="#/reporte" aria-label="Reporte de gastos">${icono('reporte', 22)}</a>` })}
       <div class="filtros">
         ${chips('fp', personas, e.fp, { clase: 'scroll', label: 'Persona' })}
         <div class="split gap">
@@ -79,7 +79,7 @@ function item(c, g, cerrado) {
   return `<div class="gitem">
     <a class="gitem-m" href="#/gasto/${esc(g.id)}">
       ${avatar(L.persona(S, g.pagado_por), 32)}
-      <span class="row-m"><span class="row-t">${puntoCat(cat)} ${esc(g.nota || cat?.nombre || 'Gasto')}${prog ? ' <span class="badge soft">Programado</span>' : ''}</span>
+      <span class="row-m"><span class="row-t">${puntoCat(cat)} ${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${prog ? ' <span class="badge soft">Programado</span>' : ''}</span>
       <span class="row-s">${g.nota ? esc(cat?.nombre || '') + ' · ' : ''}${sub}</span></span>
       <span class="amt">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}</span>
     </a>

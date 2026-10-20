@@ -4,8 +4,20 @@
 import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import * as st from '../store.js';
-import { esc, hoy, mesActual, mesDe, parseMonto, r2, num, fmt, fmt0, pct, nombreMes, sumarMeses, fechaCorta, SIMBOLO } from '../util.js';
+import { esc, hoy, mesActual, mesDe, parseMonto, r2, num, fmt, fmt0, pct, nombreMes, sumarMeses, fechaCorta, diasEnMes, SIMBOLO } from '../util.js';
 import { encabezado, segmentado, alerta, avatar, icono } from '../ui.js';
+import * as evid from '../evidencia.js';
+import { aplicarSquircle } from '../squircle.js';
+import { mensajeError } from '../api.js';
+
+const np = (v) => { const x = parseMonto(v); return isNaN(x) ? 0 : Math.min(100, Math.max(0, x)); };
+
+/** Fecha en el mes `m`: hoy si es el mes actual; si no, el mismo día del mes (o el último). */
+function fechaEnMes(m, fechaBase) {
+  if (m === mesActual()) return hoy();
+  const dia = Number(String(fechaBase || hoy()).slice(8, 10)) || 1;
+  return `${m}-${String(Math.min(dia, diasEnMes(m))).padStart(2, '0')}`;
+}
 
 /* --------------------------------------------------------------- Estado --- */
 
@@ -14,7 +26,7 @@ function iniciarNuevo(c) {
   Object.assign(e, {
     monto: '', moneda: c.meta.moneda || 'PEN', tc: '', tcManual: false,
     categoria_id: c.query.cat || '', pagado_por: c.meta.personaId,
-    fecha: c.mes === mesActual() ? hoy() : `${c.mes}-01`, nota: '', tipo: '',
+    fecha: fechaEnMes(c.mes, hoy()), nota: '', tipo: '',
     rep: 'hogar', modalidad: 'Unico', nroCuotas: 3, mesInicio: '', montoCuota: '', sinFin: '1', durN: '12',
     panel: null
   });
@@ -38,13 +50,22 @@ function iniciarEdicion(c, g) {
   cargarPcts(c, pcts);
 }
 
+function moverAMes(c, m) {
+  const e = c.estado;
+  e.fecha = fechaEnMes(m, e.fecha);
+  e.mesInicio = m;
+  if (e.moneda === 'USD' && !e.tcManual) e.tc = String(L.tipoCambio(c.S, m) || '');
+  if (e.rep === 'hogar') cargarPcts(c, L.participacion(c.S, m));
+  c.render();
+}
+
 function cargarPcts(c, pcts) {
   L.personas(c.S, { todas: true }).forEach((p) => { c.estado['pct_' + p.id] = String(num(pcts[p.id])); });
 }
 
 function pctsActuales(c) {
   const out = {};
-  L.personas(c.S).forEach((p) => { out[p.id] = num(c.estado['pct_' + p.id]); });
+  L.personas(c.S).forEach((p) => { out[p.id] = np(c.estado['pct_' + p.id]); });
   return out;
 }
 
@@ -164,6 +185,27 @@ function refrescar(c) {
   const g = document.getElementById('btnGuardar'); if (g) g.innerHTML = textoGuardar(c);
 }
 
+function conEvidencia(c, g) {
+  const e = c.estado;
+  return !!(e.ev || (!e.evQuitar && (g?.evidencia_id || e.evPend)));
+}
+
+function evCardHtml(c, g, bloqueado) {
+  const e = c.estado;
+  if (!conEvidencia(c, g)) return '';
+  const src = e.ev ? evid.urlDe(e.ev) : (e.evPreview || '');
+  const info = e.ev ? `${evid.tamanoKB(e.ev)} KB · se sube a Drive al guardar`
+    : e.evError ? e.evError
+    : e.evPend ? (evid.estadoCola.error ? mensajeError(evid.estadoCola.error) : 'Se sube a Drive al volver la conexión')
+    : src ? 'Guardada en Drive' : 'Cargando…';
+  return `<section class="card ev-card">
+    <button type="button" class="ev-thumb-b" data-a="verEv" aria-label="Ver la foto" ${src ? '' : 'disabled'}>${src ? `<img class="ev-thumb" alt="Evidencia del gasto" src="${src}">` : `<span class="ev-thumb ev-vacio">${icono('foto', 22)}</span>`}</button>
+    <span class="row-m"><span class="row-t">${e.ev ? 'Foto lista' : 'Foto del gasto'}</span><span class="row-s${e.evError ? ' bad-t' : ''}">${esc(info)}</span></span>
+    ${!bloqueado ? `<label class="link">Cambiar<input type="file" accept="image/*" data-file="ev" class="sr" aria-label="Cambiar la foto"></label>
+    <button type="button" class="link bad-t" data-a="quitarEv">Quitar</button>` : ''}
+  </section>`;
+}
+
 function textoGuardar(c) {
   const e = c.estado;
   const m = parseMonto(e.monto);
@@ -217,8 +259,16 @@ export default {
 
     const pill = (k, contenido, extra = '') => `<button type="button" class="pill${e.panel === k ? ' on' : ''}" data-a="panel" data-k="${k}" aria-expanded="${e.panel === k}" ${dis} ${extra}>${contenido}</button>`;
 
+    const tieneEv = conEvidencia(c, g);
+
     return `${encabezado({ titulo: edit ? 'Editar gasto' : 'Nuevo gasto' })}
     <main class="pad form has-footer">
+      <div class="mes-reg" role="group" aria-label="Mes del gasto">
+        <button type="button" class="btn-ic" data-a="mesReg" data-d="-1" aria-label="Mes anterior" ${dis}>${icono('atras', 22)}</button>
+        <div class="mes-reg-t"><span class="lbl">Mes del gasto</span><strong>${esc(nombreMes(mes))}</strong>${cerrado ? ' <span class="badge">Cerrado</span>' : ''}</div>
+        <button type="button" class="btn-ic" data-a="mesReg" data-d="1" aria-label="Mes siguiente" ${dis}>${icono('adelante', 22)}</button>
+      </div>
+      ${!edit && mes !== mesActual() ? `<button type="button" class="link center-self" data-a="mesHoy">Volver a ${esc(nombreMes(mesActual(), { anio: false }).toLowerCase())}</button>` : ''}
       ${cerrado && !bloqueado ? alerta('warn', `${nombreMes(mes)} está cerrado`, edit ? 'No se puede cambiar. El administrador puede reabrirlo en Cierre de mes.' : 'Cambia la fecha a un mes abierto o pide al administrador que lo reabra.') : ''}
       ${bloqueado ? alerta('warn', anulado ? 'Este gasto está anulado' : `${nombreMes(g.mes)} está cerrado`, anulado ? 'No cuenta en los totales.' : 'Solo se puede ver.') : ''}
       ${plan ? `<p class="muted sm">${plan.modalidad === 'Cuotas' ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : 'Gasto recurrente'} · ${esc(plan.descripcion)} · ${esc(g.estado)}</p>` : ''}
@@ -250,7 +300,11 @@ export default {
         ${pill('reparto', `${icono('reparto', 16)}<span id="pillRep">${esc(etiquetaReparto(c))}</span>`)}
         ${pill('nota', `${icono('nota', 16)}<span>${e.nota ? esc(e.nota.length > 18 ? e.nota.slice(0, 17) + '…' : e.nota) : 'Nota'}</span>`)}
         ${!edit ? pill('modo', `${icono('repetir', 16)}<span>${esc(modoLabel)}</span>`) : ''}
+        <label class="pill pill-file${tieneEv ? ' on' : ''}${bloqueado ? ' off' : ''}">${icono('foto', 16)}<span>${tieneEv ? 'Foto' : 'Agregar foto'}</span>
+          <input type="file" accept="image/*" data-file="ev" aria-label="Agregar foto o captura del gasto" ${dis}></label>
       </div>
+
+      <div id="evBox">${evCardHtml(c, g, bloqueado)}</div>
 
       ${e.panel === 'pago' ? `<section class="card panel">
         <div class="lbl">¿Quién pagó?</div>
@@ -266,7 +320,10 @@ export default {
         </div>
         ${ps.length === 2
           ? `<label class="sr" for="slider">Porcentaje de ${esc(ps[0].nombre)}</label>
-             <input id="slider" type="range" class="slider" min="0" max="100" step="5" data-f="slider" value="${num(e['pct_' + ps[0].id])}">`
+             <input id="slider" type="range" class="slider" min="0" max="100" step="1" data-f="slider" value="${Math.round(np(e['pct_' + ps[0].id]))}">
+             <div class="pct-pair">${ps.map((p) => `<label class="pct-box"><span class="sm">${avatar(p, 22)} ${esc(p.alias || p.nombre.split(' ')[0])}</span>
+               <span class="pct-w"><input class="inl pct" data-f="pct_${esc(p.id)}" inputmode="decimal" enterkeyhint="done" value="${esc(e['pct_' + p.id])}" aria-label="Porcentaje de ${esc(p.nombre)}"> %</span></label>`).join('')}</div>
+             <p class="xs muted">Mueve la barra o escribe el porcentaje de una persona, por ejemplo 66: la otra se completa sola.</p>`
           : ps.map((p) => `<label class="frow"><span>${avatar(p, 22)} ${esc(p.nombre)}</span><span class="pct-w"><input class="inl pct" data-f="pct_${esc(p.id)}" inputmode="decimal" value="${esc(e['pct_' + p.id])}"> %</span></label>`).join('')}
         <div id="repDet" class="stack-sm">${detalleRepartoHtml(c)}</div>
       </section>` : ''}
@@ -300,23 +357,70 @@ export default {
   },
 
   montar(raiz, c) {
+    const e = c.estado;
     // En un gasto nuevo el teclado numérico se abre de inmediato.
-    if (!c.estado.id && !c.estado.montado) {
-      c.estado.montado = true;
+    if (!e.id && !e.montado) {
+      e.montado = true;
       const m = raiz.querySelector('#monto');
       if (m) setTimeout(() => m.focus(), 60);
+    }
+    // Foto o captura: se comprime en el celular y se sube al guardar.
+    raiz.querySelectorAll('input[data-file="ev"]').forEach((inp) => inp.addEventListener('change', async () => {
+      const file = inp.files && inp.files[0];
+      if (!file) return;
+      try {
+        e.ev = await evid.comprimir(file);
+        Object.assign(e, { evQuitar: false, evError: '' });
+        c.render();
+      } catch (err) { c.avisar(err.message, 'bad'); }
+    }));
+    // Foto ya guardada: se trae de la cola, del celular o de Drive, sin redibujar la pantalla.
+    const g = e.id ? st.fila('Gastos', e.id) : null;
+    if (g && !e.evRevisada) {
+      e.evRevisada = true;
+      const pintar = () => {
+        const box = document.getElementById('evBox');
+        if (!box) return;
+        box.innerHTML = evCardHtml(c, st.fila('Gastos', e.id), L.mesCerrado(c.S, g.mes) || g.estado === L.ESTADO.ANUL);
+        aplicarSquircle(box);
+        box.querySelectorAll('input[data-file="ev"]').forEach((i) => i.addEventListener('change', async () => {
+          const file = i.files && i.files[0];
+          if (!file) return;
+          try { e.ev = await evid.comprimir(file); Object.assign(e, { evQuitar: false, evError: '' }); c.render(); } catch (err) { c.avisar(err.message, 'bad'); }
+        }));
+      };
+      evid.pendiente(g.id).then((p) => {
+        if (!g.evidencia_id && !p) return;
+        e.evPend = p;
+        pintar();
+        return evid.obtener(g).then((ev) => { if (ev) { e.evPreview = evid.urlDe(ev); pintar(); } });
+      }).catch(() => { e.evError = 'No se pudo traer la foto. Revisa la conexión.'; pintar(); });
     }
   },
 
   alEscribir(c, f, el) {
     const e = c.estado;
+    const ps = L.personas(c.S);
+    const ponerValor = (id, v) => { const i = document.querySelector(`[data-f="pct_${id}"]`); if (i && i !== document.activeElement) i.value = v; };
     if (f === 'slider') {
-      const [a, b] = L.personas(c.S);
+      const [a, b] = ps;
       e['pct_' + a.id] = String(el.value);
       e['pct_' + b.id] = String(100 - Number(el.value));
+      ponerValor(a.id, e['pct_' + a.id]); ponerValor(b.id, e['pct_' + b.id]);
       e.rep = 'medida';
     }
-    if (f.startsWith('pct_')) e.rep = 'medida';
+    if (f.startsWith('pct_')) {
+      e.rep = 'medida';
+      // Con dos personas, al escribir el porcentaje de una se completa el de la otra.
+      if (ps.length === 2 && String(el.value).trim() !== '') {
+        const yo = f.slice(4);
+        const otra = ps.find((p) => p.id !== yo);
+        const v = np(el.value);
+        if (otra) { e['pct_' + otra.id] = String(r2(100 - v)); ponerValor(otra.id, e['pct_' + otra.id]); }
+        const sl = document.getElementById('slider');
+        if (sl) sl.value = String(Math.round(yo === ps[0].id ? v : 100 - v));
+      }
+    }
     if (f === 'tc') e.tcManual = true;
     if (f === 'fecha') {
       if (e.modalidad !== 'Cuotas') e.mesInicio = mesDe(e.fecha);
@@ -335,6 +439,19 @@ export default {
       const e = c.estado;
       e.categoria_id = d.v;
       if (!e.tipoManual) e.tipo = '';
+      c.render();
+    },
+    mesReg(c, d) { moverAMes(c, sumarMeses(mesDe(c.estado.fecha), Number(d.d))); },
+    mesHoy(c) { moverAMes(c, mesActual()); },
+    verEv(c) {
+      const e = c.estado;
+      const src = e.ev ? evid.urlDe(e.ev) : e.evPreview;
+      if (!src) return;
+      const g = e.id ? st.fila('Gastos', e.id) : null;
+      c.preguntar({ titulo: 'Foto del gasto', html: `<img class="ev-full" src="${src}" alt="Evidencia del gasto">${g?.evidencia_url && !e.ev ? `<a class="btn sec wide" href="${esc(g.evidencia_url)}" target="_blank" rel="noopener">Abrir en Google Drive</a>` : ''}`, botones: [], cancelar: 'Cerrar' });
+    },
+    quitarEv(c) {
+      Object.assign(c.estado, { ev: null, evQuitar: true, evPreview: '', evPend: false });
       c.render();
     },
     moneda(c, d) {
@@ -399,6 +516,12 @@ export default {
       const hacer = (alcance) => {
         const id = ops.guardarGasto(f, { id: e.id || null, alcance });
         st.setMeta({ moneda: e.moneda });
+        // La foto se une al gasto (en cuotas o cada mes, a la primera cuota).
+        const gid = !e.id && (e.modalidad === 'Cuotas' || e.modalidad === 'Recurrente') ? L.idGastoDePlan(id, 0) : (e.id || id);
+        const cat = L.categoria(c.S, e.categoria_id);
+        if (e.ev) evid.encolar(gid, e.ev, `${e.fecha} ${cat?.nombre || 'gasto'} ${fmt(monto, { moneda: e.moneda })}.jpg`);
+        else if (e.evQuitar && e.id) evid.quitar(e.id);
+        c.setMes(mesDe(e.fecha));
         const n = Math.floor(num(e.nroCuotas));
         const texto = e.id ? 'Cambios guardados' : e.modalidad === 'Cuotas' ? `Se programaron ${n} cuotas` : e.modalidad === 'Recurrente' ? 'Gasto mensual programado' : 'Gasto guardado';
         c.volver('inicio');

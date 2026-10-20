@@ -53,6 +53,7 @@ export default {
         <p class="xs muted"><span class="legend ref"></span> presupuesto del mes · <span class="legend bad"></span> superó el presupuesto${pasados.length ? ` (${pasados.map((x) => corto(x.mes)).join(', ')})` : ''}</p>
       </section>
 
+      <a class="btn ghost wide" href="#/reporte">Ver el reporte de gastos registrados</a>
       <button class="btn sec wide" data-a="toggle" data-k="mas">${e.mas ? 'Ocultar indicadores' : 'Más indicadores'}</button>`;
 
     if (e.mas) html += masIndicadores(c, pid);
