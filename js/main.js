@@ -1,0 +1,239 @@
+// Arranque, navegación y despacho de acciones.
+
+import * as st from './store.js';
+import * as L from './logic.js';
+import * as ops from './ops.js';
+import { mesActual, sumarMeses } from './util.js';
+import { hoja, toast } from './ui.js';
+import { mensajeError } from './api.js';
+import { aplicarTema } from './tema.js';
+import { aplicarSquircle } from './squircle.js';
+
+import inicio from './pantallas/inicio.js';
+import gastos from './pantallas/gastos.js';
+import registro from './pantallas/registro.js';
+import cierre from './pantallas/cierre.js';
+import analisis from './pantallas/analisis.js';
+import mas from './pantallas/mas.js';
+import maestros from './pantallas/maestros.js';
+import plan from './pantallas/plan.js';
+import inicioSesion from './pantallas/conectar.js';
+
+const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, cierre, analisis, ...mas, ...maestros, ...plan, ...inicioSesion };
+const SIN_SESION = new Set(['conectar', 'hogar', 'quien']);
+
+const app = {
+  ruta: 'inicio', param: '', query: {},
+  mes: mesActual(),
+  estados: {},
+  hoja: null,
+  toast: null,
+  historial: []
+};
+const raiz = document.getElementById('app');
+
+function ctx() {
+  const S = st.foto();
+  const meta = st.getMeta();
+  const yo = L.persona(S, meta.personaId);
+  return {
+    S, meta, yo, admin: L.esAdmin(S, meta.personaId),
+    mes: app.mes, ruta: app.ruta, param: app.param, query: app.query,
+    estado: app.estados[app.ruta] || (app.estados[app.ruta] = {}),
+    sync: st.estadoSync,
+    ir, render, avisar, preguntar, volver, sincronizar, entrar,
+    setMes: (m) => { app.mes = m; }
+  };
+}
+
+export function ir(ruta) {
+  const h = '#/' + ruta;
+  if (location.hash === h) { entrar(); return; }
+  location.hash = h;
+}
+function volver(defecto = 'inicio') {
+  const prev = app.historial[app.historial.length - 2];
+  if (prev) history.back(); else ir(defecto);
+}
+function avisar(texto, tipo = '', accion = null) {
+  app.toast = { texto, tipo, accion };
+  render();
+  clearTimeout(avisar.t);
+  avisar.t = setTimeout(() => { app.toast = null; render(); }, accion ? 6000 : tipo === 'bad' ? 4500 : 2200);
+}
+function preguntar(h) { app.hoja = h; render(); }
+
+function leerHash() {
+  const h = location.hash.replace(/^#\/?/, '');
+  const [camino, qs] = h.split('?');
+  const [ruta, ...resto] = camino.split('/');
+  app.ruta = PANTALLAS[ruta] ? ruta : 'inicio';
+  app.param = decodeURIComponent(resto.join('/'));
+  app.query = Object.fromEntries(new URLSearchParams(qs || ''));
+}
+
+function puerta() {
+  const meta = st.getMeta();
+  if (!meta.url && !meta.demo) return 'conectar';
+  const S = st.foto();
+  if (!S.Personas.length) return 'hogar';
+  if (!L.persona(S, meta.personaId)) return 'quien';
+  return null;
+}
+
+function entrar() {
+  leerHash();
+  const destino = puerta();
+  if (destino && !SIN_SESION.has(app.ruta)) { app.ruta = destino; app.param = ''; }
+  if (!destino && SIN_SESION.has(app.ruta) && app.ruta !== 'conectar') { app.ruta = 'inicio'; }
+  app.historial.push(app.ruta + '/' + app.param);
+  if (app.historial.length > 30) app.historial.shift();
+  app.hoja = null;
+  app.estados[app.ruta] = {};
+  const p = PANTALLAS[app.ruta];
+  try { p.iniciar?.(ctx()); } catch (e) { console.error(e); }
+  render();
+  window.scrollTo(0, 0);
+}
+
+export function render() {
+  const c = ctx();
+  const p = PANTALLAS[app.ruta];
+  let html;
+  try {
+    html = p.vista(c);
+  } catch (e) {
+    console.error(e);
+    html = `<main class="pad"><div class="card"><p>Algo salió mal al mostrar esta pantalla.</p><p class="muted">${String(e.message || e).replace(/</g, '&lt;')}</p><a class="btn pri" href="#/inicio">Ir al inicio</a></div></main>`;
+  }
+  const activo = document.activeElement;
+  const foco = activo && activo.dataset && activo.dataset.f ? activo.dataset.f : null;
+  raiz.innerHTML = html + hoja(app.hoja) + toast(app.toast);
+  document.body.classList.toggle('con-hoja', !!app.hoja);
+  if (foco) {
+    const el = raiz.querySelector(`[data-f="${CSS.escape(foco)}"]`);
+    if (el && el !== document.activeElement && el.dataset.keep !== undefined) el.focus();
+  }
+  aplicarSquircle(raiz);
+  p.montar?.(raiz, c);
+}
+
+/* ------------------------------------------------------------ Acciones --- */
+
+const GLOBALES = {
+  atras: (c) => c.volver(),
+  ir: (c, d) => c.ir(d.to),
+  set: (c, d) => {
+    let v = d.v;
+    if (d.num !== undefined) v = Number(v);
+    c.estado[d.k] = v;
+    PANTALLAS[app.ruta].alElegir?.(c, d.k, v);
+    render();
+  },
+  toggle: (c, d) => { c.estado[d.k] = !c.estado[d.k]; render(); },
+  mes: (c, d) => { app.mes = sumarMeses(app.mes, Number(d.d)); PANTALLAS[app.ruta].alCambiarMes?.(ctx()); render(); },
+  'mes-hoy': () => { app.mes = mesActual(); render(); },
+  sync: () => sincronizar(true),
+  'cerrar-hoja': () => { app.hoja = null; render(); },
+  'toast-accion': () => {
+    const a = app.toast?.accion;
+    app.toast = null;
+    render();
+    if (a?.fn) ejecutar(() => a.fn(ctx()));
+  },
+  'hoja-btn': (c, d, el) => {
+    const b = app.hoja?.botones[Number(d.i)];
+    const valores = {};
+    el.closest('.sheet')?.querySelectorAll('[name]').forEach((i) => { valores[i.name] = i.value; });
+    if (b?.mantener) { if (b.fn) ejecutar(() => b.fn(ctx(), valores)); return; }
+    app.hoja = null;
+    render();
+    if (b?.fn) ejecutar(() => b.fn(ctx(), valores));
+  }
+};
+
+function ejecutar(fn) {
+  try {
+    const r = fn();
+    if (r && r.catch) r.catch(manejarError);
+  } catch (e) { manejarError(e); }
+}
+function manejarError(e) {
+  if (e instanceof ops.ErrorApp) avisar(e.message, 'bad');
+  else { console.error(e); avisar('Error: ' + (e.message || e), 'bad'); }
+}
+
+raiz.addEventListener('click', (ev) => {
+  const el = ev.target.closest('[data-a]');
+  if (!el || !raiz.contains(el)) return;
+  if (el.tagName === 'A') ev.preventDefault();
+  const nombre = el.dataset.a;
+  const p = PANTALLAS[app.ruta];
+  const fn = (p.acciones && p.acciones[nombre]) || GLOBALES[nombre];
+  if (fn) ejecutar(() => fn(ctx(), el.dataset, el, ev));
+});
+
+function alEscribir(ev) {
+  const el = ev.target;
+  if (!el.dataset || el.dataset.f === undefined) return;
+  const c = ctx();
+  c.estado[el.dataset.f] = el.type === 'checkbox' ? el.checked : el.value;
+  const p = PANTALLAS[app.ruta];
+  p.alEscribir?.(c, el.dataset.f, el, ev);
+  if (ev.type === 'change' && el.dataset.r !== undefined) render();
+}
+raiz.addEventListener('input', alEscribir);
+raiz.addEventListener('change', alEscribir);
+raiz.addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const accion = ev.target.dataset.submit;
+  const p = PANTALLAS[app.ruta];
+  const fn = p.acciones && p.acciones[accion];
+  if (fn) ejecutar(() => fn(ctx(), ev.target.dataset, ev.target, ev));
+});
+
+/* ------------------------------------------------------- Sincronización --- */
+
+export async function sincronizar(manual = false) {
+  try {
+    await st.sincronizar();
+    const rech = st.estadoSync.rechazados;
+    const nuevos = ops.asegurarRecurrentes() + ops.repararGenerados();
+    if (nuevos) await st.sincronizar().catch(() => {});
+    if (rech) avisar(`${rech} ${rech === 1 ? 'cambio no se guardó' : 'cambios no se guardaron'} porque su mes ya está cerrado.`, 'bad');
+    else if (manual) avisar('Sincronizado');
+    if (puerta() && !SIN_SESION.has(app.ruta)) entrar();
+    return true;
+  } catch (e) {
+    if (manual) avisar(mensajeError(e.message), 'bad');
+    return false;
+  }
+}
+
+/* ----------------------------------------------------------- Arranque --- */
+
+aplicarTema();
+st.cargar();
+let pendienteRender = false;
+st.suscribir(() => {
+  if (pendienteRender) return;
+  pendienteRender = true;
+  requestAnimationFrame(() => {
+    pendienteRender = false;
+    // No redibujar mientras se escribe en un campo: perdería el teclado.
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA') && raiz.contains(a)) return;
+    render();
+  });
+});
+window.addEventListener('hashchange', entrar);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sincronizar(false); });
+window.addEventListener('online', () => sincronizar(false));
+entrar();
+sincronizar(false);
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+export { app };
