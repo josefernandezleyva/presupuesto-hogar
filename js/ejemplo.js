@@ -34,8 +34,9 @@ export function crearEjemplo() {
     for (let k = 0; k < 6; k++) {
       const mes = sumarMeses(inicio, k);
       ops.guardarTipoCambio(mes, [3.71, 3.73, 3.75, 3.74, 3.76, 3.75][k]);
-      ops.guardarIngreso(lucia, mes, 3600);
-      ops.guardarIngreso(jorge, mes, 2400);
+      // Los sueldos se registran una vez y se mantienen; Jorge tuvo un aumento hace dos meses.
+      if (k === 0) { ops.guardarIngreso(lucia, mes, 3600); ops.guardarIngreso(jorge, mes, 2400); }
+      if (k === 4) ops.guardarIngreso(jorge, mes, 2700);
       gasto(mes, 6, entre(185, 215), 'Energía eléctrica', lucia, 'Recibo de luz');
       gasto(mes, 8, entre(72, 88), 'Agua', lucia, 'Recibo de agua');
       gasto(mes, 9, entre(48, 58), 'Gas', jorge, 'Balón de gas');

@@ -3,7 +3,7 @@
 
 import { llamar } from './api.js';
 
-export const TABLAS = ['Config', 'Personas', 'Participacion', 'Categorias', 'TiposCambio', 'Gastos',
+export const TABLAS = ['Config', 'Personas', 'Participacion', 'Grupos', 'Categorias', 'TiposCambio', 'Gastos',
   'GastosReparto', 'Planes', 'Ingresos', 'Presupuesto', 'Liquidaciones', 'Cierres', 'CierresSaldos'];
 
 const K = 'pp1:';
@@ -129,7 +129,11 @@ export function sincronizar() {
       if (!res || !res.ok) throw new Error(res?.error || 'respuesta_invalida');
       if (res.serverTime) meta.desfase = res.serverTime - Math.round((t0 + Date.now()) / 2);
       let rechazados = 0;
+      // Versión del Code.gs de la hoja (las anteriores a la 4 no la informan al sincronizar).
+      meta.schemaServidor = Number(res.schema) || 3;
       TABLAS.forEach((t) => {
+        // Una pestaña que la hoja todavía no tiene (Code.gs anterior): sus cambios esperan en la cola.
+        if (res.accepted && !(t in res.accepted)) return;
         (enviados[t] || []).forEach((r) => {
           const actual = outbox[t][r.id];
           // Sale de la cola si no cambió mientras viajaba: o se aceptó, o el servidor

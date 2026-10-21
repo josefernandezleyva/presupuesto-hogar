@@ -39,6 +39,7 @@ const conectar = {
       ${window.PP_SOLO_DEMO ? `<section class="card stack"><p class="sm">Esta es una vista de prueba. Desde aquí no se puede conectar una hoja de Google: para usar la app con tus datos, instálala desde GitHub Pages siguiendo la guía.</p><button class="btn pri" data-a="demo">Probar con datos de ejemplo</button></section>` : `<form class="card stack" data-submit="conectar">
         <label class="lbl" for="en">Enlace de conexión o URL del Apps Script</label>
         <textarea id="en" class="input" rows="3" data-f="enlace" placeholder="https://script.google.com/macros/s/…/exec" autocapitalize="off" autocorrect="off" spellcheck="false">${esc(e.enlace)}</textarea>
+        ${navigator.clipboard?.readText && !e.enlace ? `<button type="button" class="link" data-a="pegar">${icono('copiar', 16)} Pegar el enlace copiado</button>` : ''}
         ${token && !e.codigo ? '<p class="ok-t sm">' + icono('check', 16) + ' El enlace ya trae el código del hogar.</p>' : `<label class="lbl" for="co">Código del hogar <span class="muted">(si el enlace no lo trae)</span></label>
         <input id="co" class="input" data-f="codigo" placeholder="XXXX-XXXX-XXXX" autocapitalize="characters" autocomplete="off" value="${esc(e.codigo)}">`}
         ${e.error ? alerta('bad', 'No se pudo conectar', e.error) : ''}
@@ -49,6 +50,12 @@ const conectar = {
     </main>`;
   },
   acciones: {
+    async pegar(c) {
+      try {
+        const t = await navigator.clipboard.readText();
+        if (t) { c.estado.enlace = t.trim(); c.render(); }
+      } catch { c.avisar('No se pudo leer el portapapeles. Mantén presionado el recuadro y toca Pegar.', 'bad'); }
+    },
     async conectar(c) {
       const e = c.estado;
       const { url, token } = leerEnlace(e.enlace, e.codigo);

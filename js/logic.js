@@ -33,6 +33,7 @@ export function idx(S) {
       repartoPorGasto: group(S.GastosReparto, 'gasto_id'),
       liqPorMes: group(S.Liquidaciones, 'mes'),
       ingresosPorMes: group(S.Ingresos, 'mes'),
+      ingresosPorPersona: group(S.Ingresos, 'persona_id'),
       presupuestoPorCat: group(S.Presupuesto, 'categoria_id')
     };
   });
@@ -50,6 +51,43 @@ export function categorias(S, { todas = false } = {}) {
 export const persona = (S, id) => idx(S).persona.get(id);
 export const categoria = (S, id) => idx(S).categoria.get(id);
 export const esAdmin = (S, id) => persona(S, id)?.rol === 'Administrador';
+
+/* ---------------------------------------------------------------- Grupos --- */
+
+export const COLORES_GRUPO = ['#2F5D8A', '#1F7A5C', '#B4532A', '#6B4FA0', '#A23B72', '#2E7D6B', '#8A6D1F', '#5E5A54', '#C2410C', '#0E7490'];
+const COLOR_GRUPO_INICIAL = { 'Vivienda y servicios': '#2F5D8A', 'Alimentación': '#1F7A5C', 'Transporte': '#B4532A', 'Ocio y suscripciones': '#6B4FA0', 'Personal': '#A23B72', 'Salud y educación': '#2E7D6B', 'Ahorro': '#8A6D1F' };
+export const colorGrupoInicial = (nombre) => COLOR_GRUPO_INICIAL[nombre] || '#7A7F7C';
+export const idGrupo = (nombre) => 'G_' + norm(nombre).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+
+/** Grupos de categorías, en su orden. Si la hoja aún no tiene la pestaña Grupos, salen de las categorías. */
+export function grupos(S, { todas = false } = {}) {
+  return cache(S, 'grupos:' + todas, () => {
+    const lista = (S.Grupos || []).filter((g) => todas || activo(g)).sort(porOrden);
+    const nombres = new Set((S.Grupos || []).map((g) => norm(g.nombre)));
+    // Grupos que solo existen escritos en una categoría (hojas anteriores a la versión 1.4).
+    categorias(S, { todas: true }).forEach((c) => {
+      const n = String(c.grupo || 'Otros').trim();
+      if (!nombres.has(norm(n))) {
+        nombres.add(norm(n));
+        lista.push({ id: idGrupo(n), nombre: n, color: colorGrupoInicial(n), orden: 900 + lista.length, activo: 1, implicito: true });
+      }
+    });
+    return lista;
+  });
+}
+
+export function grupoDe(S, nombre) {
+  const n = norm(nombre || 'Otros');
+  return grupos(S, { todas: true }).find((g) => norm(g.nombre) === n) || null;
+}
+
+/** Categorías agrupadas por grupo, en el orden de los grupos. */
+export function categoriasPorGrupo(S, { todas = false } = {}) {
+  const cats = categorias(S, { todas });
+  return grupos(S, { todas: true })
+    .map((g) => ({ grupo: g, cats: cats.filter((c) => norm(c.grupo || 'Otros') === norm(g.nombre)) }))
+    .filter((x) => x.cats.length);
+}
 
 export function config(S, clave, defecto) {
   const r = S.Config.find((c) => c.clave === clave);
@@ -178,10 +216,53 @@ export function usoCategoria(S, mes, catId, { extra = 0, excluirId = null, pid =
   return { usado, tope: t, pct: t > 0 ? (usado / t) * 100 : 0, estado: estadoUso(usado, t, umbral(S)) };
 }
 
-export function ingresoMes(S, mes, pid = null) {
-  return r2((idx(S).ingresosPorMes.get(mes) || []).filter((i) => !pid || i.persona_id === pid)
-    .reduce((a, i) => a + num(i.monto_soles), 0));
+/**
+ * Sueldo vigente de una persona en `mes`: el último registrado en ese mes o antes.
+ * Un sueldo registrado se mantiene en los meses siguientes hasta que se registre otro.
+ */
+export function ingresoVigente(S, pid, mes) {
+  const filas = (idx(S).ingresosPorPersona.get(pid) || []).filter((i) => i.mes <= mes);
+  if (!filas.length) return null;
+  const f = filas.reduce((a, b) => (b.mes > a.mes ? b : a));
+  let soles = num(f.monto_soles);
+  if (f.moneda && f.moneda !== 'PEN') {
+    const tc = tipoCambio(S, mes, f.moneda);
+    if (tc) soles = r2(num(f.monto) * tc);
+  }
+  return { fila: f, desde: f.mes, propio: f.mes === mes, monto: num(f.monto), moneda: f.moneda || 'PEN', soles };
 }
+
+export function ingresoMes(S, mes, pid = null) {
+  return cache(S, `ing:${mes}:${pid}`, () => {
+    const ids = pid ? [pid] : [...new Set(S.Ingresos.map((i) => i.persona_id))];
+    return r2(ids.reduce((a, id) => a + (ingresoVigente(S, id, mes)?.soles || 0), 0));
+  });
+}
+
+/**
+ * Participación propuesta según los sueldos vigentes del mes: cada uno aporta en proporción a lo que gana.
+ * Con 100 y 50 propone 66.67 % y 33.33 %. Devuelve null si falta el sueldo de alguien.
+ */
+export function participacionPorIngresos(S, mes) {
+  const ps = personas(S);
+  if (!ps.length) return null;
+  const montos = ps.map((p) => ({ p, v: ingresoVigente(S, p.id, mes) }));
+  const faltan = montos.filter((x) => !x.v).map((x) => x.p);
+  if (faltan.length) return { faltan, pcts: null };
+  const total = montos.reduce((a, x) => a + x.v.soles, 0);
+  if (!(total > 0)) return { faltan: [], pcts: null };
+  const pcts = {};
+  let resto = 100;
+  montos.forEach((x, i) => {
+    const v = i === montos.length - 1 ? r2(resto) : r2(x.v.soles / total * 100);
+    pcts[x.p.id] = v;
+    resto = r2(resto - v);
+  });
+  return { faltan: [], pcts, total: r2(total) };
+}
+
+export const mismosPcts = (a, b) => [...new Set([...Object.keys(a || {}), ...Object.keys(b || {})])]
+  .every((id) => Math.abs(num(a?.[id]) - num(b?.[id])) < 0.005);
 
 export function resumenMes(S, mes, pid = null) {
   return cache(S, `res:${mes}:${pid}`, () => {
@@ -327,12 +408,50 @@ export function transferencias(filas) {
 /* ---------------------------------------------------- Cuotas y planes --- */
 
 /** Regla 9: total ÷ n con 2 decimales; la última cuota absorbe la diferencia. */
-export function montosCuotas(total, n) {
+export function montosCuotas(total, n, factores = null) {
   n = Math.max(1, Math.floor(n));
-  const c = r2(total / n);
-  const out = Array(n).fill(c);
-  out[n - 1] = r2(total - c * (n - 1));
+  const f = factores && factores.length === n ? factores : Array(n).fill(1);
+  const unidades = f.reduce((a, b) => a + b, 0);
+  const c = r2(total / unidades);
+  const out = f.map((x) => r2(c * x));
+  out[n - 1] = r2(total - out.slice(0, -1).reduce((a, b) => a + b, 0));
   return out;
+}
+
+/* ------------------------------------------------------- Cuotas dobles --- */
+
+export const MESES_CORTOS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+export const MESES_LARGOS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+/** Meses del año (1 a 12) en que el plan paga el doble, por ejemplo "6,12". */
+export function mesesDobles(valor) {
+  const v = Array.isArray(valor) ? valor.join(',') : (typeof valor === 'object' && valor !== null ? valor.meses_dobles : valor);
+  return [...new Set(String(v || '').split(/[^0-9]+/).map(Number).filter((m) => m >= 1 && m <= 12))].sort((a, b) => a - b);
+}
+export const textoMesesDobles = (lista) => {
+  const n = lista.map((m) => MESES_LARGOS[m - 1]);
+  return n.length > 1 ? n.slice(0, -1).join(', ') + ' y ' + n.at(-1) : (n[0] || '');
+};
+/** 2 si en ese mes el plan paga doble; 1 si no. */
+export const factorMes = (dobles, mes) => (mesesDobles(dobles).includes(Number(String(mes).slice(5, 7))) ? 2 : 1);
+export const factoresDe = (dobles, meses) => meses.map((m) => factorMes(dobles, m));
+
+/**
+ * Cuotas de una compra: el total se divide en unidades (una cuota doble vale dos) y la última absorbe
+ * el redondeo. `cuotaEditada` (con intereses) reemplaza la cuota normal; las dobles valen el doble.
+ */
+export function planCuotas(total, n, mesInicio, dobles, cuotaEditada = 0) {
+  n = Math.max(1, Math.floor(num(n)));
+  const meses = Array.from({ length: n }, (_, k) => sumarMeses(mesInicio, k));
+  const factores = factoresDe(dobles, meses);
+  const unidades = factores.reduce((a, b) => a + b, 0);
+  let base = r2(num(total) / unidades);
+  let montos = montosCuotas(r2(num(total)), n, factores);
+  if (num(cuotaEditada) > 0 && Math.abs(num(cuotaEditada) - base) > 0.004) {
+    base = r2(num(cuotaEditada));
+    montos = factores.map((f) => r2(base * f));
+  }
+  return { meses, factores, montos, base, total: r2(montos.reduce((a, b) => a + b, 0)), dobles: factores.filter((f) => f === 2).length };
 }
 
 export function fechaEnMes(mes, dia) {

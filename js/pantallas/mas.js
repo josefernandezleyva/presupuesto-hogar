@@ -5,11 +5,11 @@ import * as ops from '../ops.js';
 import * as st from '../store.js';
 import { esc, fmt, fmt0, nombreMes, sumarMeses, parseMonto, num, r2, mesActual, SIMBOLO } from '../util.js';
 import { encabezado, barraMes, tabbar, fila, avatar, icono, alerta, segmentado, dinero0 } from '../ui.js';
-import { lineaSync } from './comun.js';
+import { lineaSync, tarjetaPropuesta, usarPropuesta } from './comun.js';
 import { borrarDemo } from '../demo.js';
 import { pendientes as fotosPendientes, procesarCola, estadoCola } from '../evidencia.js';
 import { mensajeError } from '../api.js';
-import { ACENTOS, MODOS, ESTILOS, MATERIALES, ESQUINAS, leerTema, guardarTema } from '../tema.js';
+import { ACENTOS, MODOS, ESTILOS, MATERIALES, ESQUINAS, ICONOS, leerTema, guardarTema, leerIcono, guardarIcono } from '../tema.js';
 
 const flecha = icono('adelante', 18);
 
@@ -32,7 +32,7 @@ const menu = {
       <h3 class="dia">Configuración del hogar${admin ? '' : ' (solo lectura)'}</h3>
       <section class="card list">
         ${fila({ titulo: 'Personas y participación', sub: Object.entries(L.participacion(S, mes)).map(([id, p]) => `${esc(L.persona(S, id)?.nombre || '')} ${p} %`).join(' · '), der: flecha, href: '#/personas' })}
-        ${fila({ titulo: 'Categorías', sub: `${L.categorias(S).length} activas`, der: flecha, href: '#/categorias' })}
+        ${fila({ titulo: 'Categorías y grupos', sub: `${L.categorias(S).length} categorías en ${L.grupos(S).length} grupos`, der: flecha, href: '#/categorias' })}
         ${fila({ titulo: 'Presupuesto y topes', sub: `${esc(fmt0(L.presupuestoMes(S, mes)))} en ${esc(nombreMes(mes).toLowerCase())}`, der: flecha, href: '#/presupuesto' })}
         ${fila({ titulo: 'Tipo de cambio', sub: tc ? `US$ 1 = S/ ${tc}` : 'Sin cargar este mes', der: flecha, href: '#/cambio' })}
       </section>
@@ -55,32 +55,43 @@ const ingresos = {
     return `${encabezado({ titulo: 'Ingresos' })}
     <main class="pad">
       ${barraMes(mes)}
-      <p class="muted sm">Cada persona registra su sueldo del mes. Todos ven los ingresos de todos.</p>
+      <p class="muted sm">El sueldo que registras se mantiene en los meses siguientes. Si cambia, regístralo en el mes del cambio: rige desde ese mes en adelante.</p>
       ${ps.map((p) => {
-        const reg = S.Ingresos.find((i) => i.mes === mes && i.persona_id === p.id);
-        const ant = S.Ingresos.find((i) => i.mes === sumarMeses(mes, -1) && i.persona_id === p.id);
+        const v = L.ingresoVigente(S, p.id, mes);
+        const anterior = v?.propio ? L.ingresoVigente(S, p.id, sumarMeses(mes, -1)) : null;
         const puede = c.admin || p.id === c.meta.personaId;
         const k = 'm_' + p.id, km = 'mo_' + p.id;
-        if (e[k] === undefined) { e[k] = reg ? String(reg.monto) : ''; e[km] = reg?.moneda || ant?.moneda || 'PEN'; }
+        if (e[k] === undefined) { e[k] = v ? String(v.monto) : ''; e[km] = v?.moneda || 'PEN'; }
+        const origen = !v ? '<span class="muted sm">Sin registrar</span>'
+          : v.propio ? `<span class="row-s">${anterior ? `Cambió este mes (antes ${esc(fmt0(anterior.soles))})` : 'Registrado este mes'}</span>`
+          : `<span class="row-s">Vigente desde ${esc(nombreMes(v.desde).toLowerCase())}</span>`;
         return `<section class="card stack">
-          <div class="split vc">${avatar(p, 32)}<div class="grow b">${esc(p.nombre)}</div><div class="right">${reg ? `<div class="mid">${dinero0(reg.monto_soles)}</div>` : '<span class="muted sm">Sin registrar</span>'}</div></div>
-          ${puede ? `<div class="split gap"><input class="input" data-f="${k}" inputmode="decimal" placeholder="Sueldo del mes" value="${esc(e[k])}" aria-label="Sueldo de ${esc(p.nombre)}">
+          <div class="split vc">${avatar(p, 32)}<div class="grow"><div class="b">${esc(p.nombre)}</div>${v ? origen : ''}</div><div class="right">${v ? `<div class="mid">${dinero0(v.soles)}</div>` : origen}</div></div>
+          ${puede ? `<div class="split gap"><input class="input" data-f="${k}" inputmode="decimal" placeholder="Sueldo mensual" value="${esc(e[k])}" aria-label="Sueldo de ${esc(p.nombre)}">
             ${segmentado(km, [{ v: 'PEN', l: 'S/' }, { v: 'USD', l: 'US$' }], e[km], 'Moneda')}</div>
-            ${!reg && ant ? `<button class="link" data-a="repetir" data-p="${esc(p.id)}" data-v="${ant.monto}" data-mo="${esc(ant.moneda)}">Usar ${esc(fmt(ant.monto, { moneda: ant.moneda }))}, como el mes pasado</button>` : ''}
-            <button class="btn sec" data-a="guardar" data-p="${esc(p.id)}">Guardar</button>` : ''}
+            <button class="btn sec" data-a="guardar" data-p="${esc(p.id)}">${v && !v.propio ? `Cambiar desde ${esc(nombreMes(mes).toLowerCase())}` : 'Guardar'}</button>
+            ${v?.propio && anterior ? `<button class="link bad-t" data-a="quitar" data-p="${esc(p.id)}">Quitar el cambio de este mes (vuelve a ${esc(fmt0(anterior.soles))})</button>` : ''}` : ''}
         </section>`;
       }).join('')}
       <p class="sum-l">Ingreso del hogar: <strong>${dinero0(total)}</strong></p>
+      ${tarjetaPropuesta(c, mes)}
     </main>`;
   },
   alCambiarMes(c) { Object.keys(c.estado).forEach((k) => delete c.estado[k]); },
   acciones: {
-    repetir(c, d) { ops.guardarIngreso(d.p, c.mes, num(d.v), d.mo); c.estado['m_' + d.p] = String(d.v); c.avisar('Ingreso guardado'); },
+    'usar-propuesta'(c, d) { usarPropuesta(c, d, ops); },
     guardar(c, d) {
       const v = parseMonto(c.estado['m_' + d.p]);
       if (isNaN(v)) throw new ops.ErrorApp('Escribe el monto del sueldo.');
+      const antes = L.ingresoVigente(c.S, d.p, c.mes);
+      if (antes && !antes.propio && Math.abs(antes.monto - v) < 0.005 && antes.moneda === (c.estado['mo_' + d.p] || 'PEN')) { c.avisar('Es el mismo sueldo vigente: no hay nada que cambiar'); return; }
       ops.guardarIngreso(d.p, c.mes, v, c.estado['mo_' + d.p] || 'PEN');
-      c.avisar('Ingreso guardado');
+      c.avisar(antes && !antes.propio ? `Nuevo sueldo desde ${nombreMes(c.mes).toLowerCase()}` : 'Sueldo guardado');
+    },
+    quitar(c, d) {
+      ops.quitarIngreso(d.p, c.mes);
+      delete c.estado['m_' + d.p];
+      c.avisar('Se quitó el cambio de este mes');
     }
   }
 };
@@ -180,6 +191,7 @@ const ajustes = {
         ${lineaSync(c)}
         <button class="btn sec" data-a="sync">${icono('sync', 18)} Sincronizar ahora</button>
         <div id="fotosCola"></div>
+        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) < 4 ? alerta('warn', 'La hoja tiene un Code.gs anterior', 'Los grupos y las cuotas dobles esperan en este celular hasta que el dueño de la hoja pegue el Code.gs de la versión 1.4 y publique una nueva versión.') : ''}
         ${!meta.demo ? `<p class="xs muted ell">Hoja: ${esc(meta.url || '')}</p>` : ''}
       </section>
       ${admin && !meta.demo ? `<h3 class="dia">Sumar otro celular</h3>
@@ -200,7 +212,7 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center">Presupuesto del Hogar · versión 1.3</p>
+      <p class="xs muted center">Presupuesto del Hogar · versión 1.4</p>
     </main>`;
   },
   montar() {
@@ -248,12 +260,36 @@ const ajustes = {
 
 /* ----------------------------------------------------------- Apariencia --- */
 
+/** Enlace para agregar la app con otro ícono; trae la conexión para no tener que escribirla. */
+function enlaceIcono(meta, icono) {
+  const base = location.origin + location.pathname;
+  return `${base}?icono=${icono}` + (meta.url ? `#/conectar?u=${encodeURIComponent(meta.url)}&c=${encodeURIComponent(meta.token || '')}` : '');
+}
+
 const apariencia = {
-  vista() {
+  vista(c) {
     const t = leerTema();
     const glass = t.estilo === 'glass';
+    const ico = leerIcono();
+    const instalada = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
     return `${encabezado({ titulo: 'Apariencia' })}
     <main class="pad has-tabs">
+      <h3 class="dia">Ícono de la app</h3>
+      <div class="iconos" role="group" aria-label="Ícono de la app">
+        ${ICONOS.map((i) => `<button type="button" class="icono-op${i.v === ico ? ' on' : ''}" data-a="icono" data-v="${i.v}" aria-pressed="${i.v === ico}">
+          <img src="./icons/${i.v === 'verde' ? '' : i.v + '/'}icon-192.png" alt="" width="60" height="60" loading="lazy"><span>${esc(i.l)}</span></button>`).join('')}
+      </div>
+      ${c.estado.icoCambiado || ico !== 'verde' ? `<section class="card stack pasos-icono">
+        <p class="sm"><strong>Para verlo en la pantalla de inicio</strong>, el iPhone pide agregar la app otra vez:</p>
+        <ol class="sm">
+          <li>Toca <strong>Copiar enlace con este ícono</strong>.</li>
+          <li>Abre <strong>Safari</strong>, pega el enlace y toca <strong>Compartir › Agregar a inicio</strong>. Ya aparece el ícono nuevo.</li>
+          <li>Abre la app desde el ícono nuevo, pega el mismo enlace y toca <strong>Conectar</strong>.</li>
+          <li>Borra el ícono anterior: mantenlo presionado y toca <strong>Eliminar app</strong>.</li>
+        </ol>
+        <button type="button" class="btn pri" data-a="copiar-icono">${icono('copiar', 18)} Copiar enlace con este ícono</button>
+        <p class="xs muted">${instalada ? 'Los datos están en la hoja, así que no se pierden. Antes de borrar el ícono anterior, revisa en Ajustes que no queden cambios por subir.' : 'Como estás en Safari, puedes tocar Compartir › Agregar a inicio ahora mismo.'} El enlace trae el código del hogar: no lo compartas fuera de la familia.</p>
+      </section>` : '<p class="xs muted">Elige el ícono que verás en la pantalla de inicio del iPhone.</p>'}
       <h3 class="dia">Diseño</h3>
       ${segmentadoTema('estilo', ESTILOS, t.estilo, 'Diseño')}
       <p class="xs muted">${glass ? 'Liquid Glass: tarjetas, botones y barras de cristal que dejan ver el color de fondo, con la barra de pestañas flotante.' : 'Clásico: superficies sólidas y planas.'}</p>
@@ -284,6 +320,12 @@ const apariencia = {
     </main>${tabbar('mas')}`;
   },
   acciones: {
+    icono(c, d) { guardarIcono(d.v); c.estado.icoCambiado = true; c.render(); },
+    async 'copiar-icono'(c) {
+      const url = enlaceIcono(c.meta, leerIcono());
+      try { await navigator.clipboard.writeText(url); c.avisar('Enlace copiado: pégalo en Safari'); }
+      catch { c.preguntar({ titulo: 'Copia este enlace', html: `<textarea class="input" rows="4" readonly>${esc(url)}</textarea>`, botones: [], cancelar: 'Cerrar' }); }
+    },
     modo(c, d) { guardarTema({ modo: d.v }); c.render(); },
     acento(c, d) { guardarTema({ acento: d.v }); c.render(); },
     estilo(c, d) { guardarTema({ estilo: d.v }); c.render(); },

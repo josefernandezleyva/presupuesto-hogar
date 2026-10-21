@@ -22,6 +22,10 @@ export const ICON = {
   repetir: '<path d="M4 12a8 8 0 0 1 13.7-5.7L20 8M20 4v4h-4M20 12a8 8 0 0 1-13.7 5.7L4 16M4 20v-4h4"/>',
   paleta: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 2-.9 2-2 0-.5-.2-1-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1.1.9-2 2-2h2.4A4.6 4.6 0 0 0 21 9.9C21 6.1 17 3 12 3z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7" r="1"/>',
   foto: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+  cambiar: '<path d="M7 7h11l-3-3M17 17H6l3 3"/>',
+  grupo: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  subir: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  bajar: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   reporte: '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/>',
   copiar: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'
 };
@@ -30,8 +34,8 @@ export function icono(nombre, size = 22, extra = '') {
   return `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" ${extra}>${ICON[nombre]}</svg>`;
 }
 
-export function encabezado({ titulo, atras = true, derecha = '' }) {
-  return `<header class="top">
+export function encabezado({ titulo, atras = true, derecha = '', clase = '' }) {
+  return `<header class="top${clase ? ' ' + clase : ''}">
     ${atras ? `<button class="btn-ic" data-a="atras" aria-label="Volver">${icono('atras', 24)}</button>` : '<span class="btn-ic"></span>'}
     <h1 class="top-t">${esc(titulo)}</h1>
     ${derecha || '<span class="btn-ic"></span>'}

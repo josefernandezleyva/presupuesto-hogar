@@ -457,3 +457,68 @@ input[type="date"].inl, input[type="month"].inl { flex: none; }
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; top: -24px; z-index: -1; pointer-events: none;
   background: linear-gradient(to top, var(--bg) 30%, transparent);
 }
+
+/* ---------------------------------------------------------------- 1.4 --- */
+
+/* Cabecera del registro: título a la izquierda y, a su lado, quién pagó */
+.top.izq .top-t { text-align: left; padding-left: 2px; white-space: nowrap; }
+.hdr-quien { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 4px 10px 4px 4px; border-radius: 24px; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.hdr-quien .av { border-width: 0; }
+.hdr-quien-t { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; font-size: 14px; font-weight: 600; }
+.hdr-quien-l { font-size: 11px; font-weight: 500; color: var(--muted); }
+.hdr-quien .ic { color: var(--muted); }
+.hdr-quien.on { border-color: var(--accent); background: var(--accent-soft); }
+.hdr-quien:disabled { opacity: .6; }
+
+/* Campo de categoría y lista con quiebre por grupo */
+.campo-cat { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 60px; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--r-inner); background: var(--card); color: var(--ink); text-align: left; }
+.campo-cat .row-m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.campo-cat .lbl { margin: 0; font-size: 12px; }
+.campo-v { font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.campo-v .muted { font-weight: 400; font-size: 14px; }
+.campo-cat.vacio .campo-v { color: var(--accent-text); }
+.campo-cat .ic { color: var(--muted); flex: none; }
+.campo-cat:disabled { opacity: .6; }
+.cat-hoja { display: flex; flex-direction: column; gap: 4px; }
+.cat-g { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; color: var(--muted); margin: 10px 4px 4px; }
+.cat-g:first-child { margin-top: 0; }
+.cat-l { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r-inner); overflow: hidden; background: var(--card); }
+.cat-op { display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 8px 14px; border: 0; background: transparent; color: var(--ink); text-align: left; width: 100%; }
+.cat-op + .cat-op { border-top: 1px solid var(--line); }
+.cat-op .row-m { flex: 1; }
+.cat-op.on { background: var(--accent-soft); }
+.cat-op.on .row-t { color: var(--accent-text); }
+.cat-op .ic { color: var(--accent); flex: none; }
+
+/* Nota y foto, al final */
+.pills-fin { margin-top: 2px; }
+
+/* Meses con cuota doble */
+.meses12 { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.meses12 button { min-height: 40px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 13px; font-weight: 500; }
+.meses12 button.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+/* Grupos */
+.grupo-row { gap: 10px; padding-right: 6px; }
+.grupo-row .row-m { color: inherit; text-decoration: none; }
+.dot-l { width: 14px; height: 14px; border-radius: 7px; margin: 0; flex: none; }
+.ordenar { display: inline-flex; flex: none; }
+.ordenar .btn-ic { width: 38px; height: 38px; color: var(--muted); }
+.ordenar .btn-ic:disabled { opacity: .3; }
+
+/* Ícono de la app */
+.iconos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.icono-op { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: var(--r-inner); border: 2px solid transparent; background: var(--card); color: var(--ink); font-size: 13px; font-weight: 500; }
+.icono-op img { width: 60px; height: 60px; border-radius: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+.icono-op.on { border-color: var(--accent); background: var(--accent-soft); font-weight: 700; }
+.pasos-icono ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+:root[data-estilo="glass"] :is(.icono-op:not(.on), .campo-cat, .hdr-quien:not(.on), .mes-reg, .meses12 button:not(.on)) {
+  background: rgb(var(--glass-tint) / var(--mat-a));
+  -webkit-backdrop-filter: blur(var(--mat-blur)) saturate(180%); backdrop-filter: blur(var(--mat-blur)) saturate(180%);
+  border: 1px solid var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--glass-hl), inset 0 -1px 0 var(--glass-low), var(--glass-shadow);
+}
+:root[data-estilo="glass"] :is(.card, .sheet) :is(.meses12 button:not(.on), .cat-l) {
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  background: rgb(var(--glass-tint) / var(--mat-nested)); box-shadow: inset 0 1px 0 var(--glass-hl); border-color: var(--glass-edge);
+}

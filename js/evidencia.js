@@ -38,6 +38,15 @@ export async function encolar(gastoId, ev, nombre) {
   procesarCola();
 }
 
+/** Pasa una foto en espera de un gasto a otro (cuando un pago único se vuelve un plan). */
+export async function mover(de, a) {
+  const p = await idb.leer('pendientes', de);
+  if (!p) return;
+  await idb.guardar('pendientes', a, p);
+  await idb.borrar('pendientes', de);
+  procesarCola();
+}
+
 export async function quitar(gastoId) {
   await idb.borrar('pendientes', gastoId);
   const g = st.fila('Gastos', gastoId);

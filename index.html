@@ -24,6 +24,14 @@
     var r = document.documentElement.dataset;
     r.estilo = t.estilo || 'glass'; r.material = t.material || 'normal'; r.esquinas = t.esquinas || 'squircle';
     r.concentrico = t.concentrico === false ? '0' : '1';
+    // Ícono elegido (Más › Apariencia). Safari lo toma de aquí al «Agregar a inicio».
+    try { var ic = (location.search.match(/[?&]icono=([a-z]+)/) || [])[1];
+      if (ic) localStorage.setItem('pp-icono', ic); else ic = localStorage.getItem('pp-icono');
+      if (ic && ic !== 'verde' && /^(azul|violeta|terracota|rosa|grafito|crema|oscuro|original)$/.test(ic)) {
+        document.querySelector('link[rel="apple-touch-icon"]').href = './icons/' + ic + '/apple-touch-icon.png';
+        document.querySelector('link[rel="icon"]').href = './icons/' + ic + '/icon-192.png';
+        document.querySelector('link[rel="manifest"]').href = './manifest-' + ic + '.webmanifest';
+      } } catch (e) { /* sin almacenamiento */ }
   </script>
 </head>
 <body>

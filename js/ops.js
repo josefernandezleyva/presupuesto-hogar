@@ -44,6 +44,9 @@ export function crearHogar({ nombres, pcts, mes = mesActual() }) {
     cambios.push(['Personas', { id: ids[i], nombre, alias: '', rol: i === 0 ? 'Administrador' : 'Miembro', color: COLORES[i % COLORES.length], activo: 1, orden: i + 1 }]);
     cambios.push(['Participacion', { id: `PA_${mes}_${ids[i]}`, persona_id: ids[i], porcentaje: num(pcts[i]), vigente_desde: mes }]);
   });
+  [...new Set(CATEGORIAS_INICIALES.map((c) => c[1]))].forEach((grupo, i) => {
+    cambios.push(['Grupos', { id: L.idGrupo(grupo), nombre: grupo, color: L.colorGrupoInicial(grupo), orden: i + 1, activo: 1 }]);
+  });
   CATEGORIAS_INICIALES.forEach(([nombre, grupo, tipo, naturaleza], i) => {
     cambios.push(['Categorias', { id: uuid(), nombre, grupo, tipo, naturaleza, tope_sugerido: 0, activo: 1, orden: i + 1 }]);
   });
@@ -79,10 +82,68 @@ export function guardarCategoria({ id, nombre, grupo, tipo, naturaleza, tope_sug
   nombre = String(nombre || '').trim();
   if (!nombre) falla('Escribe el nombre de la categoría.');
   if (L.nombreDuplicado(S().Categorias, nombre, id)) falla('Ya existe una categoría con ese nombre.');
-  const row = { id: id || uuid(), nombre, grupo: String(grupo || 'Otros').trim(), tipo: tipo || 'Variable', naturaleza: naturaleza || 'Deseo', tope_sugerido: num(tope_sugerido), activo: activo ? 1 : 0 };
+  const g = L.grupoDe(S(), grupo);
+  if (!grupo || !g) falla('Elige un grupo de la lista.');
+  const row = { id: id || uuid(), nombre, grupo: g.nombre, tipo: tipo || 'Variable', naturaleza: naturaleza || 'Deseo', tope_sugerido: num(tope_sugerido), activo: activo ? 1 : 0 };
   if (!id) row.orden = S().Categorias.length + 1;
   st.guardarUno('Categorias', row);
   return row.id;
+}
+
+/* ------------------------------------------------------------ Grupos --- */
+
+export function guardarGrupo({ id = null, nombre, color = '', activo = 1 }) {
+  nombre = String(nombre || '').trim();
+  if (!nombre) falla('Escribe el nombre del grupo.');
+  const s = S();
+  const todos = L.grupos(s, { todas: true });
+  const prev = id ? todos.find((g) => g.id === id) : null;
+  if (todos.some((g) => g.id !== id && norm(g.nombre) === norm(nombre))) falla('Ya existe un grupo con ese nombre.');
+  if (prev && !activo && L.categorias(s).some((c) => norm(c.grupo) === norm(prev.nombre))) falla('Tiene categorías activas: muévelas a otro grupo antes de desactivarlo.');
+  let nuevoId = id;
+  if (!nuevoId) { nuevoId = L.idGrupo(nombre); if (st.existe('Grupos', nuevoId)) nuevoId = 'G_' + uuid().slice(0, 8); }
+  const reales = todos.filter((g) => !g.implicito);
+  const row = { id: nuevoId, nombre, color: color || prev?.color || L.COLORES_GRUPO[todos.length % L.COLORES_GRUPO.length], activo: activo ? 1 : 0 };
+  if (!prev || prev.implicito) row.orden = reales.length + 1;
+  const cambios = [['Grupos', row]];
+  // Al renombrar, sus categorías pasan al nombre nuevo.
+  if (prev && norm(prev.nombre) !== norm(nombre)) {
+    s.Categorias.filter((c) => norm(c.grupo || 'Otros') === norm(prev.nombre)).forEach((c) => cambios.push(['Categorias', { id: c.id, grupo: nombre }]));
+  }
+  st.guardar(cambios);
+  return nuevoId;
+}
+
+export function moverGrupo(id, d) {
+  const lista = L.grupos(S(), { todas: true }).slice();
+  const i = lista.findIndex((g) => g.id === id);
+  const j = i + Number(d);
+  if (i < 0 || j < 0 || j >= lista.length) return;
+  [lista[i], lista[j]] = [lista[j], lista[i]];
+  st.guardar(lista.map((g, k) => ['Grupos', { id: g.id, nombre: g.nombre, color: g.color, activo: L.activo(g) ? 1 : 0, orden: k + 1 }]));
+}
+
+export function eliminarGrupo(id) {
+  const s = S();
+  const g = L.grupos(s, { todas: true }).find((x) => x.id === id);
+  if (!g) return;
+  const n = s.Categorias.filter((c) => norm(c.grupo || 'Otros') === norm(g.nombre)).length;
+  if (n) falla(`Tiene ${n} ${n === 1 ? 'categoría' : 'categorías'}: muévelas a otro grupo antes de eliminarlo.`);
+  if (st.existe('Grupos', id)) st.eliminar('Grupos', id);
+}
+
+/**
+ * Crea en la pestaña Grupos los grupos que hasta ahora solo estaban escritos en las categorías
+ * (hogares creados antes de la versión 1.4). Con fecha antigua: si otro celular ya los creó, gana el suyo.
+ */
+export function asegurarGrupos() {
+  const s = S();
+  if (!s.Categorias.length) return 0;
+  const faltan = L.grupos(s, { todas: true }).filter((g) => g.implicito);
+  if (!faltan.length) return 0;
+  const base = (s.Grupos || []).length;
+  st.guardar(faltan.map((g, i) => ['Grupos', { id: g.id, nombre: g.nombre, color: g.color, orden: base + i + 1, activo: 1 }]), { ts: ANTIGUO });
+  return faltan.length;
 }
 
 /** Nuevos porcentajes desde un mes en adelante (RF-19). */
@@ -119,7 +180,12 @@ export function guardarIngreso(pid, mes, monto, moneda = 'PEN') {
   if (m < 0) falla('El ingreso no puede ser negativo.');
   const tc = L.tipoCambio(S(), mes, moneda);
   if (!tc) falla('Falta el tipo de cambio del mes para registrar en dólares.');
-  st.guardarUno('Ingresos', { id: `I_${mes}_${pid}`, persona_id: pid, mes, monto: m, moneda, monto_soles: r2(m * tc) });
+  st.guardarUno('Ingresos', { id: `I_${mes}_${pid}`, persona_id: pid, mes, monto: m, moneda, monto_soles: r2(m * tc), eliminado: 0 });
+}
+
+/** Quita el sueldo registrado en un mes: vuelve a regir el del mes anterior. */
+export function quitarIngreso(pid, mes) {
+  if (st.existe('Ingresos', `I_${mes}_${pid}`)) st.eliminar('Ingresos', `I_${mes}_${pid}`);
 }
 
 /* ------------------------------------------------------------ Gastos --- */
@@ -189,16 +255,19 @@ export function guardarGasto(f, { id = null, alcance = 'este' } = {}) {
 
   if (prev?.plan_id && alcance === 'siguientes') {
     const plan = st.fila('Planes', prev.plan_id);
+    // Con cuotas dobles, el monto escrito en un mes doble equivale a dos cuotas normales.
+    const base = plan ? r2(monto / L.factorMes(plan, prev.mes)) : monto;
     L.idx(s).gastosPorPlan.get(prev.plan_id)?.filter((g) => g.id !== id && g.estado === ESTADO.PROG && num(g.nro_cuota) > num(prev.nro_cuota) && !L.mesCerrado(s, g.mes))
       .forEach((g) => {
         const tcg = f.moneda === 'PEN' ? 1 : (L.tipoCambio(s, g.mes, f.moneda) || tc);
-        const otro = { ...g, monto, moneda: f.moneda, tipo_cambio: tcg, monto_soles: r2(monto * tcg), categoria_id: f.categoria_id, pagado_por: f.pagado_por, tipo: gasto.tipo, nota: gasto.nota };
+        const m = plan ? r2(base * L.factorMes(plan, g.mes)) : monto;
+        const otro = { ...g, monto: m, moneda: f.moneda, tipo_cambio: tcg, monto_soles: r2(m * tcg), categoria_id: f.categoria_id, pagado_por: f.pagado_por, tipo: gasto.tipo, nota: gasto.nota };
         const pctsOtro = f.repHogar ? L.participacion(s, g.mes) : (f.pcts || L.pctsDeGasto(s, g));
         cambios.push(['Gastos', otro], ...filasReparto(otro, pctsOtro));
       });
     if (plan) {
       const reparto = f.repHogar ? (plan.modalidad === 'Recurrente' ? '' : plan.reparto) : (f.pcts ? JSON.stringify(f.pcts) : plan.reparto);
-      cambios.push(['Planes', { id: plan.id, monto_cuota: monto, moneda: f.moneda, tipo_cambio: tc, categoria_id: f.categoria_id, pagado_por: f.pagado_por, tipo: gasto.tipo, descripcion: gasto.nota || plan.descripcion, reparto }]);
+      cambios.push(['Planes', { id: plan.id, monto_cuota: base, moneda: f.moneda, tipo_cambio: tc, categoria_id: f.categoria_id, pagado_por: f.pagado_por, tipo: gasto.tipo, descripcion: gasto.nota || plan.descripcion, reparto }]);
     }
   }
   st.guardar(cambios);
@@ -207,7 +276,8 @@ export function guardarGasto(f, { id = null, alcance = 'este' } = {}) {
 
 function gastoDePlan(plan, k, mes, monto, pcts, estado = ESTADO.PROG) {
   const s = S();
-  const tc = plan.moneda === 'PEN' ? 1 : (L.tipoCambioDelMes(s, mes) || num(plan.tipo_cambio) || L.tipoCambio(s, mes, plan.moneda) || 0);
+  // El primer mes usa el tipo de cambio elegido al registrar; los siguientes, el de su mes.
+  const tc = plan.moneda === 'PEN' ? 1 : ((k === 0 && num(plan.tipo_cambio)) || L.tipoCambioDelMes(s, mes) || num(plan.tipo_cambio) || L.tipoCambio(s, mes, plan.moneda) || 0);
   const g = {
     id: L.idGastoDePlan(plan.id, k), fecha: L.fechaEnMes(mes, plan.dia), mes, monto, moneda: plan.moneda,
     tipo_cambio: tc, monto_soles: r2(monto * tc), categoria_id: plan.categoria_id, pagado_por: plan.pagado_por,
@@ -221,7 +291,8 @@ function planBase(f, modalidad) {
   return {
     id: uuid(), modalidad, descripcion: String(f.nota || '').trim() || L.categoria(s, f.categoria_id)?.nombre || '',
     moneda: f.moneda, categoria_id: f.categoria_id, pagado_por: f.pagado_por,
-    tipo: f.tipo || L.categoria(s, f.categoria_id)?.tipo || 'Variable', dia: Number(f.fecha.slice(8, 10)), estado: 'Activo'
+    tipo: f.tipo || L.categoria(s, f.categoria_id)?.tipo || 'Variable', dia: Number(f.fecha.slice(8, 10)), estado: 'Activo',
+    meses_dobles: L.mesesDobles(f.mesesDobles).join(',')
   };
 }
 
@@ -231,12 +302,10 @@ function crearCuotas(f) {
   const mesInicio = f.mesInicio || mesDe(f.fecha);
   const tc = tcElegido(f, mesInicio);
   const s = S();
-  const total = r2(num(f.monto));
-  let montos = L.montosCuotas(total, n);
-  const cuotaEditada = num(f.montoCuota);
-  if (cuotaEditada > 0 && Math.abs(cuotaEditada - montos[0]) > 0.004) montos = Array(n).fill(r2(cuotaEditada));
+  const q = L.planCuotas(num(f.monto), n, mesInicio, f.mesesDobles, num(f.montoCuota));
+  const montos = q.montos;
   const pcts = f.pcts || L.participacion(s, mesInicio);
-  const plan = { ...planBase(f, 'Cuotas'), monto_total: r2(montos.reduce((a, b) => a + b, 0)), nro_cuotas: n, monto_cuota: montos[0], mes_inicio: mesInicio, duracion_meses: n, reparto: JSON.stringify(pcts), tipo_cambio: tc };
+  const plan = { ...planBase(f, 'Cuotas'), monto_total: q.total, nro_cuotas: n, monto_cuota: q.base, mes_inicio: mesInicio, duracion_meses: n, reparto: JSON.stringify(pcts), tipo_cambio: tc };
   const meses = L.mesesDePlan(plan, mesInicio);
   meses.forEach((m) => { if (L.mesCerrado(s, m)) falla(`${m} está cerrado; no se pueden poner cuotas en ese mes.`); });
   const cambios = [['Planes', plan]];
@@ -255,7 +324,7 @@ function crearRecurrente(f) {
   const s = S();
   const meses = L.mesesDePlan(plan, horizonte(mesInicio));
   const cambios = [['Planes', plan]];
-  meses.forEach((m, k) => { if (!L.mesCerrado(s, m)) cambios.push(...gastoDePlan(plan, k, m, plan.monto_cuota, f.pcts)); });
+  meses.forEach((m, k) => { if (!L.mesCerrado(s, m)) cambios.push(...gastoDePlan(plan, k, m, r2(plan.monto_cuota * L.factorMes(plan, m)), f.pcts)); });
   st.guardar(cambios);
   return plan.id;
 }
@@ -273,7 +342,7 @@ export function asegurarRecurrentes() {
     const pcts = plan.reparto ? JSON.parse(plan.reparto) : null;
     L.mesesDePlan(plan, horizonte(plan.mes_inicio)).forEach((m) => {
       const k = difMeses(plan.mes_inicio, m);
-      if (!st.existe('Gastos', L.idGastoDePlan(plan.id, k)) && !L.mesCerrado(s, m)) cambios.push(...gastoDePlan(plan, k, m, num(plan.monto_cuota), pcts));
+      if (!st.existe('Gastos', L.idGastoDePlan(plan.id, k)) && !L.mesCerrado(s, m)) cambios.push(...gastoDePlan(plan, k, m, r2(num(plan.monto_cuota) * L.factorMes(plan, m)), pcts));
     });
   });
   if (cambios.length) st.guardar(cambios, { ts: ANTIGUO });
@@ -293,13 +362,88 @@ export function repararGenerados() {
     if (!plan) return;
     if (plan.estado === 'Cancelado') { anular.push(['Gastos', { id: g.id, estado: ESTADO.ANUL }]); return; }
     if (plan.modalidad !== 'Recurrente') return;
-    if (num(g.monto) !== num(plan.monto_cuota) || g.categoria_id !== plan.categoria_id || g.pagado_por !== plan.pagado_por || g.moneda !== plan.moneda) {
-      alinear.push(...gastoDePlan(plan, num(g.nro_cuota) - 1, g.mes, num(plan.monto_cuota), plan.reparto ? JSON.parse(plan.reparto) : null));
+    const esperado = r2(num(plan.monto_cuota) * L.factorMes(plan, g.mes));
+    if (num(g.monto) !== esperado || g.categoria_id !== plan.categoria_id || g.pagado_por !== plan.pagado_por || g.moneda !== plan.moneda) {
+      alinear.push(...gastoDePlan(plan, num(g.nro_cuota) - 1, g.mes, esperado, plan.reparto ? JSON.parse(plan.reparto) : null));
     }
   });
   if (anular.length) st.guardar(anular);
   if (alinear.length) st.guardar(alinear, { ts: ANTIGUO });
   return anular.length + alinear.length;
+}
+
+/**
+ * Convierte un gasto de pago único en cuotas o en un gasto mensual (desde su propio mes).
+ * El gasto original se reemplaza por el primero del plan, que conserva su foto y su estado.
+ */
+export function convertirEnPlan(id, f) {
+  const g = st.fila('Gastos', id);
+  if (!g) falla('No encontré el gasto.');
+  if (g.plan_id) falla('Este gasto ya es parte de un plan.');
+  if (L.mesCerrado(S(), g.mes)) falla(`${g.mes} está cerrado.`);
+  const planId = f.modalidad === 'Cuotas' ? crearCuotas(f) : crearRecurrente(f);
+  const s = S();
+  const cambios = [['Gastos', { id, eliminado: 1 }]];
+  s.GastosReparto.filter((r) => r.gasto_id === id).forEach((r) => cambios.push(['GastosReparto', { id: r.id, eliminado: 1 }]));
+  const primero = st.fila('Gastos', L.idGastoDePlan(planId, 0));
+  if (primero) {
+    const extra = g.evidencia_id ? { evidencia_id: g.evidencia_id, evidencia_url: g.evidencia_url || '' } : {};
+    const nuevo = { ...primero, ...extra, registrado_por: g.registrado_por || primero.registrado_por };
+    if (g.estado === ESTADO.CONF && primero.fecha <= hoy()) cambios.push(...confirmacion(nuevo, null, nuevo.tipo_cambio));
+    else cambios.push(['Gastos', nuevo]);
+  }
+  st.guardar(cambios);
+  return planId;
+}
+
+/**
+ * Ajusta un plan desde un mes: meses con cuota doble y, en los mensuales, la duración o el fin.
+ * Recalcula los gastos programados desde ese mes (los de meses cerrados no se tocan).
+ * `excluir`: id de un gasto cuyo monto la persona acaba de escribir a mano.
+ */
+export function actualizarPlan(planId, { duracion, mesesDobles, terminar = false } = {}, desde, { excluir = null } = {}) {
+  const s = S();
+  const plan = st.fila('Planes', planId);
+  if (!plan) falla('No encontré el plan.');
+  const cambio = { id: plan.id };
+  if (mesesDobles !== undefined) cambio.meses_dobles = L.mesesDobles(mesesDobles).join(',');
+  if (plan.modalidad === 'Recurrente') {
+    const minimo = difMeses(plan.mes_inicio, desde) + 1;
+    if (terminar) cambio.duracion_meses = minimo;
+    else if (duracion !== undefined) {
+      const d = Math.floor(num(duracion));
+      if (d && d < minimo) falla(`Ya van ${minimo} meses desde ${plan.mes_inicio}: la duración debe ser de ${minimo} o más.`);
+      if (d > 240) falla('La duración debe ser de 240 meses o menos.');
+      cambio.duracion_meses = d || '';
+    }
+  }
+  const nuevo = { ...plan, ...cambio };
+  const cambios = [['Planes', cambio]];
+  const prog = (L.idx(s).gastosPorPlan.get(plan.id) || [])
+    .filter((g) => g.estado === ESTADO.PROG && g.mes >= desde && !L.mesCerrado(s, g.mes) && g.id !== excluir)
+    .sort((a, b) => num(a.nro_cuota) - num(b.nro_cuota));
+  const rehacer = (g, monto) => {
+    const tc = num(g.tipo_cambio) || 1;
+    const otro = { ...g, monto, monto_soles: r2(monto * tc) };
+    cambios.push(['Gastos', otro], ...filasReparto(otro, L.pctsDeGasto(s, g)));
+  };
+  if (plan.modalidad === 'Recurrente') {
+    const dur = num(nuevo.duracion_meses);
+    const fin = dur > 0 ? sumarMeses(plan.mes_inicio, dur - 1) : null;
+    prog.forEach((g) => {
+      if (fin && g.mes > fin) { cambios.push(['Gastos', { id: g.id, estado: ESTADO.ANUL }]); return; }
+      const m = r2(num(plan.monto_cuota) * L.factorMes(nuevo, g.mes));
+      if (m !== num(g.monto)) rehacer(g, m);
+    });
+  } else if (prog.length) {
+    // Cuotas: lo que falta pagar se reparte de nuevo, con las cuotas dobles en sus meses.
+    const resto = r2(prog.reduce((a, g) => a + num(g.monto), 0));
+    const montos = L.montosCuotas(resto, prog.length, L.factoresDe(nuevo, prog.map((g) => g.mes)));
+    prog.forEach((g, i) => { if (montos[i] !== num(g.monto)) rehacer(g, montos[i]); });
+    cambio.monto_cuota = r2(resto / L.factoresDe(nuevo, prog.map((g) => g.mes)).reduce((a, b) => a + b, 0));
+  }
+  st.guardar(cambios);
+  if (plan.modalidad === 'Recurrente') asegurarRecurrentes();
 }
 
 /** RF-35: confirma un programado, opcionalmente con el monto real. */

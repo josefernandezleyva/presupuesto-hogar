@@ -110,7 +110,12 @@ export function render() {
   }
   const activo = document.activeElement;
   const foco = activo && activo.dataset && activo.dataset.f ? activo.dataset.f : null;
+  // Lo escrito en una hoja abierta se conserva si la pantalla se vuelve a dibujar (por ejemplo, al sincronizar).
+  const enHoja = {};
+  if (app.hoja && app.hoja === render.hoja) raiz.querySelectorAll('.sheet [name]').forEach((i) => { enHoja[i.name] = i.value; });
+  render.hoja = app.hoja;
   raiz.innerHTML = html + hoja(app.hoja) + toast(app.toast);
+  Object.entries(enHoja).forEach(([k, v]) => { const i = raiz.querySelector(`.sheet [name="${CSS.escape(k)}"]`); if (i) i.value = v; });
   document.body.classList.toggle('con-hoja', !!app.hoja);
   if (foco) {
     const el = raiz.querySelector(`[data-f="${CSS.escape(foco)}"]`);
@@ -201,7 +206,7 @@ export async function sincronizar(manual = false) {
     await st.sincronizar();
     procesarCola().catch(() => {});
     const rech = st.estadoSync.rechazados;
-    const nuevos = ops.asegurarRecurrentes() + ops.repararGenerados();
+    const nuevos = ops.asegurarRecurrentes() + ops.repararGenerados() + ops.asegurarGrupos();
     if (nuevos) await st.sincronizar().catch(() => {});
     if (rech) avisar(`${rech} ${rech === 1 ? 'cambio no se guardó' : 'cambios no se guardaron'} porque su mes ya está cerrado.`, 'bad');
     else if (manual) avisar('Sincronizado');

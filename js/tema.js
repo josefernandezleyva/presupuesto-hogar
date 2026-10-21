@@ -35,6 +35,28 @@ export const ESQUINAS = [
   { v: 'redondeadas', l: 'Redondeadas' }
 ];
 
+export const ICONOS = [
+  { v: 'verde', l: 'Verde' }, { v: 'azul', l: 'Azul' }, { v: 'violeta', l: 'Violeta' },
+  { v: 'terracota', l: 'Terracota' }, { v: 'rosa', l: 'Rosa' }, { v: 'grafito', l: 'Grafito' },
+  { v: 'crema', l: 'Crema' }, { v: 'oscuro', l: 'Oscuro' }, { v: 'original', l: 'Original' }
+];
+const KEY_ICONO = 'pp-icono';
+
+export function leerIcono() {
+  try { const v = localStorage.getItem(KEY_ICONO); if (ICONOS.some((i) => i.v === v)) return v; } catch { /* sin almacenamiento */ }
+  return 'verde';
+}
+
+/** Guarda el ícono elegido y lo pone en la página (Safari lo usa al agregar la app a la pantalla de inicio). */
+export function guardarIcono(v) {
+  if (!ICONOS.some((i) => i.v === v)) return;
+  try { localStorage.setItem(KEY_ICONO, v); } catch { /* sin almacenamiento */ }
+  const base = v === 'verde' ? './icons/' : `./icons/${v}/`;
+  document.querySelector('link[rel="apple-touch-icon"]')?.setAttribute('href', base + 'apple-touch-icon.png');
+  document.querySelector('link[rel="icon"]')?.setAttribute('href', base + 'icon-192.png');
+  document.querySelector('link[rel="manifest"]')?.setAttribute('href', v === 'verde' ? './manifest.webmanifest' : `./manifest-${v}.webmanifest`);
+}
+
 export const DEFECTO = { modo: 'auto', acento: 'verde', estilo: 'glass', material: 'normal', esquinas: 'squircle', concentrico: true };
 
 export function leerTema() {

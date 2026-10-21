@@ -1,14 +1,15 @@
 // Registrar o editar un gasto, en pocos pasos: monto, categoría y Guardar.
-// Todo lo demás (fecha, quién pagó, reparto, nota, cuotas) viene propuesto y se cambia con un toque.
+// Arriba: el mes y quién pagó. Luego fecha, reparto y modalidad; al final, nota y foto.
 
 import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import * as st from '../store.js';
-import { esc, hoy, mesActual, mesDe, parseMonto, r2, num, fmt, fmt0, pct, nombreMes, sumarMeses, fechaCorta, diasEnMes, SIMBOLO } from '../util.js';
+import { esc, hoy, mesActual, mesDe, parseMonto, r2, num, fmt, fmt0, pct, nombreMes, sumarMeses, fechaCorta, diasEnMes, difMeses, SIMBOLO } from '../util.js';
 import { encabezado, segmentado, alerta, avatar, icono } from '../ui.js';
 import * as evid from '../evidencia.js';
 import { aplicarSquircle } from '../squircle.js';
 import { mensajeError } from '../api.js';
+import { puntoCat } from './comun.js';
 
 const np = (v) => { const x = parseMonto(v); return isNaN(x) ? 0 : Math.min(100, Math.max(0, x)); };
 
@@ -27,7 +28,7 @@ function iniciarNuevo(c) {
     monto: '', moneda: c.meta.moneda || 'PEN', tc: '', tcManual: false,
     categoria_id: c.query.cat || '', pagado_por: c.meta.personaId,
     fecha: fechaEnMes(c.mes, hoy()), nota: '', tipo: '',
-    rep: 'hogar', modalidad: 'Unico', nroCuotas: 3, mesInicio: '', montoCuota: '', sinFin: '1', durN: '12',
+    rep: 'hogar', modalidad: 'Unico', nroCuotas: 3, mesInicio: '', montoCuota: '', sinFin: '1', durN: '12', dobles: [],
     panel: null
   });
   e.mesInicio = mesDe(e.fecha);
@@ -38,11 +39,15 @@ function iniciarNuevo(c) {
 function iniciarEdicion(c, g) {
   const e = c.estado;
   const S = c.S;
+  const plan = g.plan_id ? st.fila('Planes', g.plan_id) : null;
   Object.assign(e, {
     id: g.id, monto: String(g.monto), moneda: g.moneda, tc: g.moneda === 'USD' ? String(g.tipo_cambio || '') : '', tcManual: true,
     categoria_id: g.categoria_id, pagado_por: g.pagado_por, fecha: g.fecha, nota: g.nota || '', tipo: g.tipo || '',
-    modalidad: 'Unico', panel: null
+    modalidad: plan ? plan.modalidad : 'Unico', nroCuotas: 3, mesInicio: g.mes, montoCuota: '',
+    sinFin: plan && num(plan.duracion_meses) ? '0' : '1', durN: String(plan && num(plan.duracion_meses) ? plan.duracion_meses : 12),
+    dobles: plan ? L.mesesDobles(plan) : [], repite: '1', panel: null
   });
+  e.planOrig = plan ? { sinFin: e.sinFin, durN: e.durN, dobles: e.dobles.join(',') } : null;
   const pcts = L.pctsDeGasto(S, g);
   const hogar = L.participacion(S, g.mes);
   const igual = (a, b) => L.personas(S, { todas: true }).every((p) => num(a[p.id]) === num(b[p.id]));
@@ -75,6 +80,18 @@ function pctsElegidos(c) {
   return pctsActuales(c);
 }
 
+/** Cambios de plan pedidos al editar un gasto mensual o en cuotas (null si no hay). */
+function cambiosDePlan(e) {
+  if (!e.planOrig) return null;
+  const out = {};
+  if (e.dobles.join(',') !== e.planOrig.dobles) out.mesesDobles = e.dobles;
+  if (e.modalidad === 'Recurrente') {
+    if (e.repite === '0') out.terminar = true;
+    else if (e.sinFin !== e.planOrig.sinFin || (e.sinFin === '0' && e.durN !== e.planOrig.durN)) out.duracion = e.sinFin === '1' ? 0 : num(e.durN);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /* ------------------------------------------------------------ Cálculos --- */
 
 function tcVigente(c) {
@@ -87,17 +104,18 @@ function tcVigente(c) {
 function cuotasCalc(e) {
   const total = parseMonto(e.monto);
   const n = Math.max(2, Math.floor(num(e.nroCuotas)));
-  if (!(total > 0)) return { n, montos: [], cuota: 0, total: 0 };
-  let montos = L.montosCuotas(total, n);
-  const ed = parseMonto(e.montoCuota);
-  if (ed > 0 && Math.abs(ed - montos[0]) > 0.004) montos = Array(n).fill(ed);
-  return { n, montos, cuota: montos[0], total: r2(montos.reduce((a, b) => a + b, 0)) };
+  if (!(total > 0)) return { n, montos: [], cuota: 0, total: 0, dobles: 0 };
+  const q = L.planCuotas(total, n, e.mesInicio || mesDe(e.fecha), e.dobles, parseMonto(e.montoCuota) || 0);
+  return { n, montos: q.montos, cuota: q.base, primera: q.montos[0], total: q.total, dobles: q.dobles };
 }
 
 /** Monto en soles que pesa en el mes (para alerta y reparto). */
 function solesDelMes(c) {
   const e = c.estado;
-  const base = e.modalidad === 'Cuotas' ? cuotasCalc(e).cuota : (parseMonto(e.monto) || 0);
+  const nuevoPlan = !e.id || !e.planOrig;
+  let base = parseMonto(e.monto) || 0;
+  if (nuevoPlan && e.modalidad === 'Cuotas') base = cuotasCalc(e).primera || 0;
+  else if (nuevoPlan && e.modalidad === 'Recurrente') base = base * L.factorMes(e.dobles.join(','), mesDe(e.fecha));
   return r2((base || 0) * (tcVigente(c) || 0));
 }
 
@@ -107,7 +125,7 @@ function usoHtml(c) {
   const { S, estado: e } = c;
   if (!e.categoria_id) return '';
   const cat = L.categoria(S, e.categoria_id);
-  const mes = e.modalidad === 'Cuotas' ? (e.mesInicio || mesDe(e.fecha)) : mesDe(e.fecha);
+  const mes = e.modalidad === 'Cuotas' && !e.planOrig ? (e.mesInicio || mesDe(e.fecha)) : mesDe(e.fecha);
   if (e.moneda === 'USD' && !tcVigente(c)) return '';
   const soles = solesDelMes(c);
   const u = L.usoCategoria(S, mes, e.categoria_id, { extra: soles, excluirId: e.id || null });
@@ -164,12 +182,33 @@ function detalleRepartoHtml(c) {
   }).join('') + (suma === 100 ? '' : `<p class="bad-t xs">Suma ${suma} %; debe ser 100 %.</p>`);
 }
 
+const doblesTexto = (e) => (e.dobles.length ? L.textoMesesDobles(e.dobles) : '');
+
 function cuotasHtml(c) {
   const e = c.estado;
   const q = cuotasCalc(e);
   if (!q.montos.length) return '<p class="muted xs">Escribe el monto total arriba.</p>';
   const ini = e.mesInicio || mesDe(e.fecha);
-  return `<p class="sm">${q.n} cuotas de <strong>${esc(fmt(q.cuota, { moneda: e.moneda }))}</strong>, de ${esc(nombreMes(ini, { corto: true }))} a ${esc(nombreMes(sumarMeses(ini, q.n - 1), { corto: true }))}${Math.abs(q.total - parseMonto(e.monto)) > 0.004 ? ` · total ${esc(fmt(q.total, { moneda: e.moneda }))}` : ''}</p>`;
+  const doble = q.dobles ? ` (${esc(fmt(r2(q.cuota * 2), { moneda: e.moneda }))} en ${esc(doblesTexto(e))})` : '';
+  return `<p class="sm">${q.n} cuotas de <strong>${esc(fmt(q.cuota, { moneda: e.moneda }))}</strong>${doble}, de ${esc(nombreMes(ini, { corto: true }))} a ${esc(nombreMes(sumarMeses(ini, q.n - 1), { corto: true }))}${Math.abs(q.total - parseMonto(e.monto)) > 0.004 ? ` · total ${esc(fmt(q.total, { moneda: e.moneda }))}` : ''}</p>`;
+}
+
+function recurrenteHtml(c) {
+  const e = c.estado;
+  const m = parseMonto(e.monto) || 0;
+  const dia = Number(e.fecha.slice(8, 10));
+  const doble = e.dobles.length && m > 0 ? ` y ${esc(fmt(r2(m * 2), { moneda: e.moneda }))} en ${esc(doblesTexto(e))}` : '';
+  return `<p class="muted xs">Queda programado cada mes, el día ${dia}${m > 0 ? `: ${esc(fmt(m, { moneda: e.moneda }))}${doble}` : ''}. Lo confirmas con un toque.</p>`;
+}
+
+/** Selector de los meses en que se paga doble (por ejemplo junio y diciembre). */
+function doblesHtml(e, nota = '') {
+  return `<div class="lbl">Meses con cuota doble <span class="muted">(opcional)</span></div>
+    <div class="meses12" role="group" aria-label="Meses con cuota doble">${L.MESES_CORTOS.map((n, i) => {
+      const on = e.dobles.includes(i + 1);
+      return `<button type="button" class="${on ? 'on' : ''}" data-a="doble" data-v="${i + 1}" aria-pressed="${on}">${n}</button>`;
+    }).join('')}</div>
+    <p class="xs muted">${e.dobles.length ? `Paga el doble en ${esc(doblesTexto(e))}.` : 'Por ejemplo, préstamos con cuota doble en julio y diciembre.'}${nota ? ' ' + nota : ''}</p>`;
 }
 
 function refrescar(c) {
@@ -179,6 +218,7 @@ function refrescar(c) {
   if (conv) { const tmp = document.createElement('div'); tmp.innerHTML = tcHtml(c); const n = tmp.querySelector('#conv'); if (n) { conv.className = n.className; conv.innerHTML = n.innerHTML; } }
   set('repDet', detalleRepartoHtml(c));
   set('cuotas', cuotasHtml(c));
+  set('recInfo', recurrenteHtml(c));
   const pr = document.getElementById('pillRep'); if (pr) pr.textContent = etiquetaReparto(c);
   const act = presetActivo(c);
   document.querySelectorAll('[data-a="preset"]').forEach((b) => { b.classList.toggle('on', b.dataset.v === act); });
@@ -210,16 +250,27 @@ function textoGuardar(c) {
   const e = c.estado;
   const m = parseMonto(e.monto);
   const monto = m > 0 ? ' · ' + esc(fmt(m, { moneda: e.moneda })) : '';
+  if (e.id && !e.planOrig && e.modalidad === 'Cuotas') return 'Pasar a cuotas' + monto;
+  if (e.id && !e.planOrig && e.modalidad === 'Recurrente') return 'Repetir cada mes' + monto;
   if (e.id) return 'Guardar cambios' + monto;
   if (e.modalidad === 'Cuotas') return 'Programar cuotas' + monto;
   return 'Guardar' + monto;
 }
 
-function categoriasOrdenadas(S) {
-  const desde = hoy(new Date(Date.now() - 90 * 864e5));
-  const uso = new Map();
-  S.Gastos.forEach((g) => { if (g.fecha >= desde) uso.set(g.categoria_id, (uso.get(g.categoria_id) || 0) + 1); });
-  return L.categorias(S).sort((a, b) => (uso.get(b.id) || 0) - (uso.get(a.id) || 0) || num(a.orden) - num(b.orden));
+/** Lista de categorías con quiebre por grupo, en una hoja que sube desde abajo. */
+function hojaCategorias(c) {
+  const { S, estado: e } = c;
+  const mes = mesDe(e.fecha);
+  const filas = L.categoriasPorGrupo(S).map(({ grupo, cats }) => `<div class="cat-g"><span class="dot" style="background:${esc(grupo.color || '#7A7F7C')}" aria-hidden="true"></span>${esc(grupo.nombre)}</div>
+    <div class="cat-l">${cats.map((x) => {
+      const u = L.usoCategoria(S, mes, x.id, { excluirId: e.id || null });
+      const on = x.id === e.categoria_id;
+      return `<button type="button" class="cat-op${on ? ' on' : ''}" data-a="elegirCat" data-v="${esc(x.id)}" aria-pressed="${on}">
+        <span class="row-m"><span class="row-t">${esc(x.nombre)}</span>${u.tope > 0 ? `<span class="row-s">${esc(fmt0(u.usado))} de ${esc(fmt0(u.tope))} este mes</span>` : ''}</span>
+        ${on ? icono('check', 20) : ''}</button>`;
+    }).join('')}</div>`).join('');
+  return `<div class="cat-hoja">${filas || '<p class="muted sm">Aún no hay categorías.</p>'}</div>
+    ${c.admin ? '<button type="button" class="btn ghost wide" data-a="nueva-cat">+ Nueva categoría</button>' : ''}`;
 }
 
 /* --------------------------------------------------------------- Vista --- */
@@ -245,23 +296,18 @@ export default {
     const bloqueado = anulado || (g && L.mesCerrado(S, g.mes));
     const ps = L.personas(S);
     const pagador = L.persona(S, e.pagado_por);
-
-    const todas = categoriasOrdenadas(S);
-    let visibles = e.todasCat ? todas : todas.slice(0, 8);
-    if (e.categoria_id && !visibles.some((x) => x.id === e.categoria_id)) {
-      const sel = L.categoria(S, e.categoria_id);
-      if (sel) visibles = [sel, ...visibles.slice(0, 7)];
-    }
     const catSel = L.categoria(S, e.categoria_id);
     const tipoEf = e.tipo || catSel?.tipo || 'Variable';
-    const modoLabel = e.modalidad === 'Cuotas' ? `${e.nroCuotas} cuotas` : e.modalidad === 'Recurrente' ? 'Cada mes' : 'Pago único';
+    const modoLabel = e.modalidad === 'Cuotas' ? (plan ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : `${e.nroCuotas} cuotas`)
+      : e.modalidad === 'Recurrente' ? (e.repite === '0' ? 'Termina este mes' : 'Cada mes') : 'Pago único';
     const dis = bloqueado ? 'disabled' : '';
-
-    const pill = (k, contenido, extra = '') => `<button type="button" class="pill${e.panel === k ? ' on' : ''}" data-a="panel" data-k="${k}" aria-expanded="${e.panel === k}" ${dis} ${extra}>${contenido}</button>`;
-
+    const pill = (k, contenido) => `<button type="button" class="pill${e.panel === k ? ' on' : ''}" data-a="panel" data-k="${k}" aria-expanded="${e.panel === k}" ${dis}>${contenido}</button>`;
     const tieneEv = conEvidencia(c, g);
+    const nombreCorto = pagador?.alias || pagador?.nombre?.split(' ')[0] || '';
+    const quien = `<button type="button" class="hdr-quien${e.panel === 'pago' ? ' on' : ''}" data-a="${ps.length === 2 ? 'pagador' : 'panel'}" data-k="pago" ${dis} aria-label="Pagó ${esc(pagador?.nombre || '')}. Toca para cambiar">
+      ${avatar(pagador, 28)}<span class="hdr-quien-t"><span class="hdr-quien-l">Pagó</span><span>${esc(nombreCorto)}</span></span>${ps.length > 1 && !bloqueado ? icono('cambiar', 14) : ''}</button>`;
 
-    return `${encabezado({ titulo: edit ? 'Editar gasto' : 'Nuevo gasto' })}
+    return `${encabezado({ titulo: edit ? 'Editar gasto' : 'Nuevo gasto', derecha: quien, clase: 'izq' })}
     <main class="pad form has-footer">
       <div class="mes-reg" role="group" aria-label="Mes del gasto">
         <button type="button" class="btn-ic" data-a="mesReg" data-d="-1" aria-label="Mes anterior" ${dis}>${icono('atras', 22)}</button>
@@ -271,11 +317,16 @@ export default {
       ${!edit && mes !== mesActual() ? `<button type="button" class="link center-self" data-a="mesHoy">Volver a ${esc(nombreMes(mesActual(), { anio: false }).toLowerCase())}</button>` : ''}
       ${cerrado && !bloqueado ? alerta('warn', `${nombreMes(mes)} está cerrado`, edit ? 'No se puede cambiar. El administrador puede reabrirlo en Cierre de mes.' : 'Cambia la fecha a un mes abierto o pide al administrador que lo reabra.') : ''}
       ${bloqueado ? alerta('warn', anulado ? 'Este gasto está anulado' : `${nombreMes(g.mes)} está cerrado`, anulado ? 'No cuenta en los totales.' : 'Solo se puede ver.') : ''}
-      ${plan ? `<p class="muted sm">${plan.modalidad === 'Cuotas' ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : 'Gasto recurrente'} · ${esc(plan.descripcion)} · ${esc(g.estado)}</p>` : ''}
+      ${plan ? `<p class="muted sm">${plan.modalidad === 'Cuotas' ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : 'Gasto mensual'} · ${esc(plan.descripcion)} · ${esc(g.estado)}</p>` : ''}
+
+      ${e.panel === 'pago' && ps.length > 2 ? `<section class="card panel">
+        <div class="lbl">¿Quién pagó?</div>
+        <div class="chips">${ps.map((p) => `<button type="button" class="chip${p.id === e.pagado_por ? ' on' : ''}" data-a="set" data-k="pagado_por" data-v="${esc(p.id)}">${avatar(p, 24)} ${esc(p.nombre)}</button>`).join('')}</div>
+      </section>` : ''}
 
       <section class="amount">
         <span class="monto-s" aria-hidden="true">${SIMBOLO[e.moneda]}</span>
-        <label class="sr" for="monto">${e.modalidad === 'Cuotas' ? 'Monto total' : 'Monto'}</label>
+        <label class="sr" for="monto">${e.modalidad === 'Cuotas' && !plan ? 'Monto total' : 'Monto'}</label>
         <input id="monto" class="monto-i" data-f="monto" data-keep inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0.00" value="${esc(e.monto)}" ${dis}>
         <div class="cur-seg" role="group" aria-label="Moneda">
           <button type="button" class="${e.moneda === 'PEN' ? 'on' : ''}" data-a="moneda" data-v="PEN" aria-pressed="${e.moneda === 'PEN'}" ${dis}>S/</button>
@@ -284,32 +335,18 @@ export default {
       </section>
       <div id="tcbox">${tcHtml(c)}</div>
 
-      <div class="chips cats" role="group" aria-label="Categoría">
-        ${visibles.map((x) => `<button type="button" class="chip${x.id === e.categoria_id ? ' on' : ''}" data-a="cat" data-v="${esc(x.id)}" aria-pressed="${x.id === e.categoria_id}" ${dis}>${esc(x.nombre)}</button>`).join('')}
-        ${todas.length > 8 ? `<button type="button" class="chip ghost-chip" data-a="toggle" data-k="todasCat">${e.todasCat ? 'Menos' : `Más (${todas.length - 8})`}</button>` : ''}
-        ${c.admin && e.todasCat ? '<button type="button" class="chip dashed" data-a="nueva-cat">+ Nueva</button>' : ''}
-      </div>
+      <button type="button" class="campo-cat${catSel ? '' : ' vacio'}" data-a="listaCat" ${dis} aria-haspopup="dialog">
+        <span class="row-m"><span class="lbl">Categoría</span>
+          <span class="campo-v">${catSel ? `${puntoCat(catSel)} ${esc(catSel.nombre)} <span class="muted">· ${esc(catSel.grupo || 'Otros')}</span>` : 'Elige una categoría'}</span></span>
+        ${icono('adelante', 18)}</button>
       <div id="uso">${usoHtml(c)}</div>
 
-      <div class="pills" role="group" aria-label="Detalles">
+      <div class="pills" role="group" aria-label="Fecha, reparto y modalidad">
         <label class="pill pill-date${bloqueado ? ' off' : ''}">${icono('calendario', 16)}<span>${esc(fechaCorta(e.fecha))}</span>
           <input type="date" data-f="fecha" data-r value="${esc(e.fecha)}" aria-label="Fecha" ${dis}></label>
-        ${ps.length === 2
-          ? `<button type="button" class="pill" data-a="pagador" ${dis} aria-label="Pagó ${esc(pagador?.nombre || '')}. Toca para cambiar">${avatar(pagador, 20)}<span>Pagó ${esc(pagador?.alias || pagador?.nombre || '')}</span></button>`
-          : pill('pago', `${avatar(pagador, 20)}<span>Pagó ${esc(pagador?.alias || pagador?.nombre || '')}</span>`)}
         ${pill('reparto', `${icono('reparto', 16)}<span id="pillRep">${esc(etiquetaReparto(c))}</span>`)}
-        ${pill('nota', `${icono('nota', 16)}<span>${e.nota ? esc(e.nota.length > 18 ? e.nota.slice(0, 17) + '…' : e.nota) : 'Nota'}</span>`)}
-        ${!edit ? pill('modo', `${icono('repetir', 16)}<span>${esc(modoLabel)}</span>`) : ''}
-        <label class="pill pill-file${tieneEv ? ' on' : ''}${bloqueado ? ' off' : ''}">${icono('foto', 16)}<span>${tieneEv ? 'Foto' : 'Agregar foto'}</span>
-          <input type="file" accept="image/*" data-file="ev" aria-label="Agregar foto o captura del gasto" ${dis}></label>
+        ${pill('modo', `${icono('repetir', 16)}<span>${esc(modoLabel)}</span>${e.dobles.length ? ' <span class="badge soft">×2</span>' : ''}`)}
       </div>
-
-      <div id="evBox">${evCardHtml(c, g, bloqueado)}</div>
-
-      ${e.panel === 'pago' ? `<section class="card panel">
-        <div class="lbl">¿Quién pagó?</div>
-        <div class="chips">${ps.map((p) => `<button type="button" class="chip${p.id === e.pagado_por ? ' on' : ''}" data-a="set" data-k="pagado_por" data-v="${esc(p.id)}">${avatar(p, 24)} ${esc(p.nombre)}</button>`).join('')}</div>
-      </section>` : ''}
 
       ${e.panel === 'reparto' ? `<section class="card panel">
         <div class="lbl">¿Cómo se reparte este gasto?</div>
@@ -328,25 +365,19 @@ export default {
         <div id="repDet" class="stack-sm">${detalleRepartoHtml(c)}</div>
       </section>` : ''}
 
+      ${e.panel === 'modo' ? `<section class="card panel stack">${panelModo(c, g, plan, tipoEf)}</section>` : ''}
+
+      <div class="pills pills-fin" role="group" aria-label="Nota y foto">
+        ${pill('nota', `${icono('nota', 16)}<span>${e.nota ? esc(e.nota.length > 18 ? e.nota.slice(0, 17) + '…' : e.nota) : 'Nota'}</span>`)}
+        <label class="pill pill-file${tieneEv ? ' on' : ''}${bloqueado ? ' off' : ''}">${icono('foto', 16)}<span>${tieneEv ? 'Foto' : 'Agregar foto'}</span>
+          <input type="file" accept="image/*" data-file="ev" aria-label="Agregar foto o captura del gasto" ${dis}></label>
+      </div>
+
       ${e.panel === 'nota' ? `<section class="card panel">
         <label class="lbl" for="nota">Nota</label>
         <input id="nota" class="input" data-f="nota" maxlength="80" placeholder="Ej.: Supermercado" value="${esc(e.nota)}" enterkeyhint="done">
       </section>` : ''}
-
-      ${e.panel === 'modo' ? `<section class="card panel stack">
-        ${segmentado('modalidad', [{ v: 'Unico', l: 'Pago único' }, { v: 'Cuotas', l: 'En cuotas' }, { v: 'Recurrente', l: 'Cada mes' }], e.modalidad, 'Modalidad')}
-        ${e.modalidad === 'Cuotas' ? `
-          <div class="frow"><span class="muted">Cuotas</span>
-            <span class="stepper"><button type="button" class="btn-ic" data-a="cuotas" data-d="-1" aria-label="Menos cuotas">−</button><strong>${e.nroCuotas}</strong><button type="button" class="btn-ic" data-a="cuotas" data-d="1" aria-label="Más cuotas">+</button></span></div>
-          <label class="frow"><span class="muted">Primera cuota</span><input type="month" class="inl" data-f="mesInicio" data-r value="${esc(e.mesInicio)}"></label>
-          <label class="frow"><span class="muted">Cuota con intereses</span><input class="inl" data-f="montoCuota" inputmode="decimal" placeholder="Opcional" value="${esc(e.montoCuota)}"></label>
-          <div id="cuotas">${cuotasHtml(c)}</div>` : ''}
-        ${e.modalidad === 'Recurrente' ? `
-          ${segmentado('sinFin', [{ v: '1', l: 'Sin fin' }, { v: '0', l: 'Por meses' }], e.sinFin, 'Duración')}
-          ${e.sinFin === '0' ? `<label class="frow"><span class="muted">Meses</span><input class="inl" data-f="durN" inputmode="numeric" value="${esc(e.durN)}"></label>` : ''}
-          <p class="muted xs">Queda programado cada mes, el día ${Number(e.fecha.slice(8, 10))}. Lo confirmas con un toque.</p>` : ''}
-        <div class="frow"><span class="muted">Tipo</span>${segmentado('tipo', [{ v: 'Fijo', l: 'Fijo' }, { v: 'Variable', l: 'Variable' }], tipoEf, 'Tipo de gasto')}</div>
-      </section>` : ''}
+      <div id="evBox">${evCardHtml(c, g, bloqueado)}</div>
 
       ${edit && !bloqueado && !cerrado ? `<div class="links">
         ${g?.estado === L.ESTADO.PROG ? '<button type="button" class="link" data-a="confirmar">Confirmar con este monto</button>' : ''}
@@ -364,8 +395,7 @@ export default {
       const m = raiz.querySelector('#monto');
       if (m) setTimeout(() => m.focus(), 60);
     }
-    // Foto o captura: se comprime en el celular y se sube al guardar.
-    raiz.querySelectorAll('input[data-file="ev"]').forEach((inp) => inp.addEventListener('change', async () => {
+    const alElegirFoto = (inp) => inp.addEventListener('change', async () => {
       const file = inp.files && inp.files[0];
       if (!file) return;
       try {
@@ -373,7 +403,9 @@ export default {
         Object.assign(e, { evQuitar: false, evError: '' });
         c.render();
       } catch (err) { c.avisar(err.message, 'bad'); }
-    }));
+    });
+    // Foto o captura: se comprime en el celular y se sube al guardar.
+    raiz.querySelectorAll('input[data-file="ev"]').forEach(alElegirFoto);
     // Foto ya guardada: se trae de la cola, del celular o de Drive, sin redibujar la pantalla.
     const g = e.id ? st.fila('Gastos', e.id) : null;
     if (g && !e.evRevisada) {
@@ -383,11 +415,7 @@ export default {
         if (!box) return;
         box.innerHTML = evCardHtml(c, st.fila('Gastos', e.id), L.mesCerrado(c.S, g.mes) || g.estado === L.ESTADO.ANUL);
         aplicarSquircle(box);
-        box.querySelectorAll('input[data-file="ev"]').forEach((i) => i.addEventListener('change', async () => {
-          const file = i.files && i.files[0];
-          if (!file) return;
-          try { e.ev = await evid.comprimir(file); Object.assign(e, { evQuitar: false, evError: '' }); c.render(); } catch (err) { c.avisar(err.message, 'bad'); }
-        }));
+        box.querySelectorAll('input[data-file="ev"]').forEach(alElegirFoto);
       };
       evid.pendiente(g.id).then((p) => {
         if (!g.evidencia_id && !p) return;
@@ -423,7 +451,7 @@ export default {
     }
     if (f === 'tc') e.tcManual = true;
     if (f === 'fecha') {
-      if (e.modalidad !== 'Cuotas') e.mesInicio = mesDe(e.fecha);
+      if (e.modalidad !== 'Cuotas' || e.planOrig) e.mesInicio = mesDe(e.fecha);
       if (e.moneda === 'USD' && !e.tcManual) e.tc = String(L.tipoCambio(c.S, mesDe(e.fecha)) || '');
       if (e.rep === 'hogar') cargarPcts(c, L.participacion(c.S, mesDe(e.fecha)));
     }
@@ -435,14 +463,23 @@ export default {
   },
 
   acciones: {
-    cat(c, d) {
+    listaCat(c) {
+      c.preguntar({ titulo: 'Categoría', html: hojaCategorias(c), botones: [], cancelar: 'Cerrar' });
+    },
+    elegirCat(c, d) {
       const e = c.estado;
       e.categoria_id = d.v;
       if (!e.tipoManual) e.tipo = '';
-      c.render();
+      c.preguntar(null);
     },
     mesReg(c, d) { moverAMes(c, sumarMeses(mesDe(c.estado.fecha), Number(d.d))); },
     mesHoy(c) { moverAMes(c, mesActual()); },
+    doble(c, d) {
+      const e = c.estado;
+      const m = Number(d.v);
+      e.dobles = e.dobles.includes(m) ? e.dobles.filter((x) => x !== m) : [...e.dobles, m].sort((a, b) => a - b);
+      c.render();
+    },
     verEv(c) {
       const e = c.estado;
       const src = e.ev ? evid.urlDe(e.ev) : e.evPreview;
@@ -485,12 +522,14 @@ export default {
       c.render();
     },
     'nueva-cat'(c) {
+      const grupos = L.grupos(c.S);
       c.preguntar({
         titulo: 'Nueva categoría',
         html: `<label class="lbl" for="nc">Nombre</label><input id="nc" name="nombre" class="input" maxlength="40" autocomplete="off">
+          <label class="lbl" for="ng">Grupo</label><select id="ng" name="grupo" class="select">${grupos.map((g) => `<option${g.nombre === 'Otros' ? ' selected' : ''}>${esc(g.nombre)}</option>`).join('')}</select>
           <label class="lbl" for="nt">Tipo</label><select id="nt" name="tipo" class="select"><option>Variable</option><option>Fijo</option></select>`,
         botones: [{ l: 'Crear categoría', estilo: 'pri', fn: (c2, v) => {
-          const id = ops.guardarCategoria({ nombre: v.nombre, grupo: 'Otros', tipo: v.tipo, naturaleza: 'Deseo' });
+          const id = ops.guardarCategoria({ nombre: v.nombre, grupo: v.grupo, tipo: v.tipo, naturaleza: 'Deseo' });
           c2.estado.categoria_id = id;
           c2.render();
           c2.avisar('Categoría creada');
@@ -505,29 +544,53 @@ export default {
       if (e.moneda === 'USD' && !tcVigente(c)) { document.getElementById('tc')?.focus(); throw new ops.ErrorApp('Escribe el tipo de cambio.'); }
       const pcts = pctsElegidos(c);
       if (pcts && L.sumaPcts(pcts) !== 100) { e.panel = 'reparto'; c.render(); throw new ops.ErrorApp('El reparto debe sumar 100 %.'); }
+      if (e.dobles.length && !c.meta.demo && (num(c.meta.schemaServidor) || 3) < 4 && (!e.planOrig || e.dobles.join(',') !== e.planOrig.dobles)) {
+        throw new ops.ErrorApp('Las cuotas dobles necesitan el Code.gs de la versión 1.4 en la hoja. Pide al dueño de la hoja que lo actualice.');
+      }
       const f = {
         monto, moneda: e.moneda, tipoCambio: e.moneda === 'USD' ? tcVigente(c) : 1,
         categoria_id: e.categoria_id, pagado_por: e.pagado_por, fecha: e.fecha, nota: e.nota, tipo: e.tipo || '',
         pcts, repHogar: e.rep === 'hogar', modalidad: e.modalidad,
         nroCuotas: e.nroCuotas, mesInicio: e.mesInicio, montoCuota: parseMonto(e.montoCuota) || 0,
-        duracion: e.sinFin === '1' ? 0 : num(e.durN)
+        duracion: e.sinFin === '1' ? 0 : num(e.durN), mesesDobles: e.dobles
       };
       const g = e.id ? st.fila('Gastos', e.id) : null;
+      const cat = L.categoria(c.S, e.categoria_id);
+      const nombreFoto = `${e.fecha} ${cat?.nombre || 'gasto'} ${fmt(monto, { moneda: e.moneda })}.jpg`;
+      const terminar = (texto, deshacerId = null) => {
+        c.setMes(mesDe(e.fecha));
+        c.volver('inicio');
+        c.avisar(texto, '', deshacerId ? { l: 'Deshacer', fn: (c2) => { ops.deshacer(deshacerId); c2.avisar('Registro deshecho'); } } : null);
+      };
+
+      // Un pago único que ahora se repite cada mes o se paga en cuotas.
+      if (g && !g.plan_id && e.modalidad !== 'Unico') {
+        const planId = ops.convertirEnPlan(g.id, f);
+        const gid = L.idGastoDePlan(planId, 0);
+        if (e.ev) evid.encolar(gid, e.ev, nombreFoto);
+        else if (e.evQuitar) evid.quitar(gid);
+        else evid.mover(g.id, gid);
+        terminar(e.modalidad === 'Cuotas' ? `Se pasó a ${Math.floor(num(e.nroCuotas))} cuotas` : 'Ahora se repite cada mes');
+        return;
+      }
+
+      const cambiosPlan = cambiosDePlan(e);
       const hacer = (alcance) => {
         const id = ops.guardarGasto(f, { id: e.id || null, alcance });
         st.setMeta({ moneda: e.moneda });
+        if (g?.plan_id && cambiosPlan) ops.actualizarPlan(g.plan_id, cambiosPlan, g.mes, { excluir: Math.abs(monto - num(g.monto)) > 0.004 ? g.id : null });
         // La foto se une al gasto (en cuotas o cada mes, a la primera cuota).
         const gid = !e.id && (e.modalidad === 'Cuotas' || e.modalidad === 'Recurrente') ? L.idGastoDePlan(id, 0) : (e.id || id);
-        const cat = L.categoria(c.S, e.categoria_id);
-        if (e.ev) evid.encolar(gid, e.ev, `${e.fecha} ${cat?.nombre || 'gasto'} ${fmt(monto, { moneda: e.moneda })}.jpg`);
+        if (e.ev) evid.encolar(gid, e.ev, nombreFoto);
         else if (e.evQuitar && e.id) evid.quitar(e.id);
-        c.setMes(mesDe(e.fecha));
         const n = Math.floor(num(e.nroCuotas));
-        const texto = e.id ? 'Cambios guardados' : e.modalidad === 'Cuotas' ? `Se programaron ${n} cuotas` : e.modalidad === 'Recurrente' ? 'Gasto mensual programado' : 'Gasto guardado';
-        c.volver('inicio');
-        c.avisar(texto, '', e.id ? null : { l: 'Deshacer', fn: (c2) => { ops.deshacer(id); c2.avisar('Registro deshecho'); } });
+        const texto = e.id ? (cambiosPlan?.terminar ? 'Listo: deja de repetirse después de este mes' : 'Cambios guardados')
+          : e.modalidad === 'Cuotas' ? `Se programaron ${n} cuotas` : e.modalidad === 'Recurrente' ? 'Gasto mensual programado' : 'Gasto guardado';
+        terminar(texto, e.id ? null : id);
       };
-      if (g?.plan_id && g.estado === L.ESTADO.PROG) {
+      const cambioDelGasto = g && (Math.abs(monto - num(g.monto)) > 0.004 || g.categoria_id !== e.categoria_id || g.pagado_por !== e.pagado_por
+        || g.moneda !== e.moneda || (g.nota || '') !== String(e.nota || '').trim() || e.rep !== 'hogar');
+      if (g?.plan_id && g.estado === L.ESTADO.PROG && cambioDelGasto) {
         c.preguntar({ titulo: '¿A qué gastos aplica el cambio?', texto: 'Este gasto es parte de un plan de cuotas o mensual.', botones: [
           { l: 'Solo a este', estilo: 'sec', fn: () => hacer('este') },
           { l: 'A este y los siguientes', estilo: 'pri', fn: () => hacer('siguientes') }
@@ -555,3 +618,40 @@ export default {
     }
   }
 };
+
+/** Contenido del panel de modalidad: al registrar, o al editar un gasto suelto, mensual o en cuotas. */
+function panelModo(c, g, plan, tipoEf) {
+  const e = c.estado;
+  const tipo = `<div class="frow"><span class="muted">Tipo</span>${segmentado('tipo', [{ v: 'Fijo', l: 'Fijo' }, { v: 'Variable', l: 'Variable' }], tipoEf, 'Tipo de gasto')}</div>`;
+  if (plan && plan.modalidad === 'Recurrente') {
+    const n = difMeses(plan.mes_inicio, g.mes) + 1;
+    return `<p class="sm">Gasto mensual desde ${esc(nombreMes(plan.mes_inicio).toLowerCase())}. Este es el mes ${n}.</p>
+      ${segmentado('repite', [{ v: '1', l: 'Sigue cada mes' }, { v: '0', l: 'Termina este mes' }], e.repite, 'Repetición')}
+      ${e.repite === '0' ? '<p class="xs muted">Se anulan los meses programados que siguen. Este gasto se mantiene.</p>' : `
+        ${segmentado('sinFin', [{ v: '1', l: 'Sin fin' }, { v: '0', l: 'Por meses' }], e.sinFin, 'Duración')}
+        ${e.sinFin === '0' ? `<label class="frow"><span class="muted">Meses en total, desde el inicio</span><input class="inl" data-f="durN" inputmode="numeric" value="${esc(e.durN)}"></label>` : ''}
+        ${doblesHtml(e, 'Se aplica desde este mes.')}`}
+      <p class="xs muted">Para cambiar el monto de los meses que siguen, cámbialo arriba y elige «A este y los siguientes» al guardar.</p>
+      ${tipo}`;
+  }
+  if (plan && plan.modalidad === 'Cuotas') {
+    return `<p class="sm">Cuota ${esc(g.nro_cuota)} de ${esc(plan.nro_cuotas)} · total ${esc(fmt(plan.monto_total, { moneda: plan.moneda }))}.</p>
+      ${doblesHtml(e, 'Lo que falta pagar se reparte de nuevo desde este mes.')}
+      ${tipo}`;
+  }
+  return `${segmentado('modalidad', [{ v: 'Unico', l: 'Pago único' }, { v: 'Cuotas', l: 'En cuotas' }, { v: 'Recurrente', l: 'Cada mes' }], e.modalidad, 'Modalidad')}
+    ${g && e.modalidad !== 'Unico' ? `<p class="xs muted">Este gasto pasa a ser ${e.modalidad === 'Cuotas' ? 'la primera cuota' : 'el primer mes'} del plan, con su foto.</p>` : ''}
+    ${e.modalidad === 'Cuotas' ? `
+      <div class="frow"><span class="muted">Cuotas</span>
+        <span class="stepper"><button type="button" class="btn-ic" data-a="cuotas" data-d="-1" aria-label="Menos cuotas">−</button><strong>${e.nroCuotas}</strong><button type="button" class="btn-ic" data-a="cuotas" data-d="1" aria-label="Más cuotas">+</button></span></div>
+      <label class="frow"><span class="muted">Primera cuota</span><input type="month" class="inl" data-f="mesInicio" data-r value="${esc(e.mesInicio)}"></label>
+      <label class="frow"><span class="muted">Cuota con intereses</span><input class="inl" data-f="montoCuota" inputmode="decimal" placeholder="Opcional" value="${esc(e.montoCuota)}"></label>
+      ${doblesHtml(e)}
+      <div id="cuotas">${cuotasHtml(c)}</div>` : ''}
+    ${e.modalidad === 'Recurrente' ? `
+      ${segmentado('sinFin', [{ v: '1', l: 'Sin fin' }, { v: '0', l: 'Por meses' }], e.sinFin, 'Duración')}
+      ${e.sinFin === '0' ? `<label class="frow"><span class="muted">Meses</span><input class="inl" data-f="durN" inputmode="numeric" value="${esc(e.durN)}"></label>` : ''}
+      ${doblesHtml(e)}
+      <div id="recInfo">${recurrenteHtml(c)}</div>` : ''}
+    ${tipo}`;
+}
