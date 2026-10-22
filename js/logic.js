@@ -103,22 +103,82 @@ export function nombreDuplicado(rows, nombre, exceptoId) {
 /* -------------------------------------------------------- Participación --- */
 
 /** Porcentaje de cada persona vigente en `mes` (regla: el último "vigente_desde" ≤ mes). */
-export function participacion(S, mes) {
-  return cache(S, 'part:' + mes, () => {
-    const previas = S.Participacion.filter((p) => p.vigente_desde <= mes);
-    if (previas.length) {
-      const desde = previas.reduce((m, p) => (p.vigente_desde > m ? p.vigente_desde : m), '');
-      const out = {};
-      previas.filter((p) => p.vigente_desde === desde && num(p.porcentaje) > 0)
-        .forEach((p) => { out[p.persona_id] = num(p.porcentaje); });
-      if (Object.keys(out).length) return out;
-    }
-    const ps = personas(S);
-    const out = {};
-    ps.forEach((p, i) => { out[p.id] = i === ps.length - 1 ? r2(100 - r2(100 / ps.length) * (ps.length - 1)) : r2(100 / ps.length); });
-    return out;
+/** Año y mes de un «vigente_desde», aunque en la hoja se haya escrito con día o espacios ("2026-10-01", " 2026-10"). */
+export function mesDeVigencia(v) {
+  const m = String(v ?? '').trim().match(/^(\d{4})-(\d{1,2})/);
+  return m ? `${m[1]}-${m[2].padStart(2, '0')}` : '';
+}
+
+/** Distribuciones guardadas, por mes de inicio y en orden: [{ desde, pcts }]. */
+export function distribuciones(S) {
+  return cache(S, 'dist', () => {
+    const porMes = new Map();
+    S.Participacion.forEach((p) => {
+      const m = mesDeVigencia(p.vigente_desde);
+      if (!m || !(num(p.porcentaje) > 0)) return;
+      if (!porMes.has(m)) porMes.set(m, {});
+      porMes.get(m)[p.persona_id] = num(p.porcentaje);
+    });
+    return [...porMes.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([desde, pcts]) => ({ desde, pcts }));
   });
 }
+
+/**
+ * Distribución vigente en `mes`: la de mes de inicio más reciente que no pase de `mes`.
+ * Para los meses anteriores a la primera, rige la primera (no partes iguales).
+ */
+export function vigencia(S, mes) {
+  return cache(S, 'vig:' + mes, () => {
+    const lista = distribuciones(S);
+    const previa = lista.filter((d) => d.desde <= mes).at(-1) || lista[0];
+    if (previa) return { desde: previa.desde, pcts: previa.pcts, anterior: previa.desde > mes };
+    const ps = personas(S);
+    const pcts = {};
+    ps.forEach((p, i) => { pcts[p.id] = i === ps.length - 1 ? r2(100 - r2(100 / ps.length) * (ps.length - 1)) : r2(100 / ps.length); });
+    return { desde: '', pcts, anterior: false };
+  });
+}
+
+/**
+ * Descripciones ya usadas, para sugerir al escribir (con la categoría con que se usó la última vez).
+ * Cuenta los gastos confirmados y programados que no están anulados; un plan cuenta una sola vez.
+ * Primero las que empiezan con lo escrito, luego las más usadas y las más recientes.
+ */
+export function sugerenciasDescripcion(S, texto = '', { max = 4 } = {}) {
+  const todas = cache(S, 'sugs', () => {
+    const mapa = new Map();
+    const planes = new Set();
+    for (const g of S.Gastos || []) {
+      const nota = String(g.nota ?? '').replace(/\s+/g, ' ').trim();
+      if (!nota || g.estado === ESTADO.ANUL || Number(g.eliminado) === 1) continue;
+      if (g.plan_id) { if (planes.has(g.plan_id + '|' + nota)) continue; planes.add(g.plan_id + '|' + nota); }
+      const k = norm(nota);
+      const a = mapa.get(k) || { k, nota, n: 0, fecha: '', categoria_id: '' };
+      a.n += 1;
+      if (String(g.fecha || '') >= a.fecha) Object.assign(a, { fecha: String(g.fecha || ''), categoria_id: g.categoria_id, nota });
+      mapa.set(k, a);
+    }
+    return [...mapa.values()].sort((a, b) => b.n - a.n || b.fecha.localeCompare(a.fecha));
+  });
+  const q = norm(texto);
+  const activas = (x) => { const c = categoria(S, x.categoria_id); return c && Number(c.activo) !== 0; };
+  const lista = todas.filter((x) => x.k !== q && (!q || x.k.includes(q)) && activas(x));
+  const empieza = lista.filter((x) => x.k.startsWith(q));
+  return [...empieza, ...lista.filter((x) => !x.k.startsWith(q))].slice(0, max);
+}
+
+/** Participación de cada persona vigente en `mes` (ver `vigencia`). */
+export function participacion(S, mes) {
+  return vigencia(S, mes).pcts;
+}
+
+/** Texto de un reparto en el orden de las personas: «Lucía 60 % · Jorge 40 %». */
+export function textoReparto(S, pcts, { todas = false } = {}) {
+  return personas(S, { todas }).filter((p) => num(pcts[p.id]) > 0)
+    .map((p) => `${p.alias || p.nombre.split(' ')[0]} ${Number(num(pcts[p.id]).toFixed(2))} %`).join(' · ');
+}
+/** «60/40» en el orden de las personas. */
+export const barrasReparto = (S, pcts) => personas(S).map((p) => Number(num(pcts[p.id]).toFixed(2))).join('/');
 
 /** Reparte un monto según porcentajes; la última persona absorbe el redondeo. */
 export function calcularReparto(montoSoles, pcts) {

@@ -43,7 +43,7 @@ function ctx() {
     mes: app.mes, ruta: app.ruta, param: app.param, query: app.query,
     estado: app.estados[app.ruta] || (app.estados[app.ruta] = {}),
     sync: st.estadoSync,
-    ir, render, avisar, preguntar, volver, sincronizar, entrar,
+    ir, render, avisar, anunciar, preguntar, volver, sincronizar, entrar,
     setMes: (m) => { app.mes = m; }
   };
 }
@@ -60,10 +60,37 @@ function volver(defecto = 'inicio') {
 function avisar(texto, tipo = '', accion = null) {
   app.toast = { texto, tipo, accion };
   render();
+  anunciar(texto);
   clearTimeout(avisar.t);
   avisar.t = setTimeout(() => { app.toast = null; render(); }, accion ? 6000 : tipo === 'bad' ? 4500 : 2200);
 }
 function preguntar(h) { app.hoja = h; render(); }
+
+/** VoiceOver lee los avisos desde una región fija (no se redibuja con la pantalla). */
+function anunciar(texto) {
+  let r = document.getElementById('anuncio');
+  if (!r) {
+    r = document.createElement('div');
+    r.id = 'anuncio'; r.className = 'sr'; r.setAttribute('aria-live', 'polite'); r.setAttribute('role', 'status');
+    document.body.appendChild(r);
+  }
+  r.textContent = '';
+  setTimeout(() => { r.textContent = texto; }, 50);
+}
+
+/**
+ * Con una hoja abierta, el resto de la pantalla queda inerte (VoiceOver y el teclado no salen de la hoja).
+ * Al abrirla, el foco va a la hoja; al cerrarla, vuelve al botón que la abrió.
+ */
+function enfocarHoja(abierta) {
+  [...raiz.children].forEach((n) => { n.inert = !!app.hoja && !n.matches('.sheet, .sheet-bg, .toast'); });
+  if (!abierta) return;
+  const sh = raiz.querySelector('.sheet');
+  if (!sh) return;
+  const primero = sh.querySelector('input, select, textarea') || sh.querySelector('#sheet-t');
+  if (primero && primero.id === 'sheet-t') primero.tabIndex = -1;
+  setTimeout(() => primero?.focus({ preventScroll: true }), 30);
+}
 
 function leerHash() {
   const h = location.hash.replace(/^#\/?/, '');
@@ -113,10 +140,25 @@ export function render() {
   // Lo escrito en una hoja abierta se conserva si la pantalla se vuelve a dibujar (por ejemplo, al sincronizar).
   const enHoja = {};
   if (app.hoja && app.hoja === render.hoja) raiz.querySelectorAll('.sheet [name]').forEach((i) => { enHoja[i.name] = i.value; });
+  const hojaNueva = !!app.hoja && app.hoja !== render.hoja;
+  // Si se redibuja con la misma hoja abierta, el foco vuelve al mismo elemento de la hoja.
+  const enfoqueHoja = !hojaNueva && app.hoja && activo?.closest?.('.sheet')
+    ? (activo.id ? '#' + CSS.escape(activo.id) : activo.name ? `[name="${CSS.escape(activo.name)}"]` : activo.dataset?.i ? `[data-a="${activo.dataset.a}"][data-i="${activo.dataset.i}"]` : activo.dataset?.a ? `[data-a="${activo.dataset.a}"]` : null)
+    : null;
+  const hojaCerrada = !app.hoja && !!render.hoja;
+  if (hojaNueva && !render.hoja) render.origen = activo?.dataset?.a ? activo.dataset.a + '|' + (activo.dataset.k || activo.dataset.v || activo.dataset.i || '') : null;
   render.hoja = app.hoja;
   raiz.innerHTML = html + hoja(app.hoja) + toast(app.toast);
   Object.entries(enHoja).forEach(([k, v]) => { const i = raiz.querySelector(`.sheet [name="${CSS.escape(k)}"]`); if (i) i.value = v; });
   document.body.classList.toggle('con-hoja', !!app.hoja);
+  enfocarHoja(hojaNueva);
+  if (enfoqueHoja) { const el = raiz.querySelector('.sheet ' + enfoqueHoja); if (el) { if (el.id === 'sheet-t') el.tabIndex = -1; el.focus({ preventScroll: true }); } }
+  if (hojaCerrada && render.origen && !foco) {
+    const [a, k] = render.origen.split('|');
+    const el = [...raiz.querySelectorAll(`[data-a="${CSS.escape(a)}"]`)].find((x) => (x.dataset.k || x.dataset.v || x.dataset.i || '') === k);
+    render.origen = null;
+    if (el) el.focus({ preventScroll: true });
+  }
   if (foco) {
     const el = raiz.querySelector(`[data-f="${CSS.escape(foco)}"]`);
     if (el && el !== document.activeElement && el.dataset.keep !== undefined) el.focus();
@@ -190,6 +232,7 @@ function alEscribir(ev) {
   if (ev.type === 'change' && el.dataset.r !== undefined) render();
 }
 raiz.addEventListener('input', alEscribir);
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && app.hoja) { app.hoja = null; render(); } });
 raiz.addEventListener('change', alEscribir);
 raiz.addEventListener('submit', (ev) => {
   ev.preventDefault();
@@ -235,10 +278,16 @@ st.suscribir(() => {
   });
 });
 window.addEventListener('hashchange', entrar);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') sincronizar(false); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { window.ppTextoSistema?.(); sincronizar(false); } });
 window.addEventListener('online', () => sincronizar(false));
-entrar();
-sincronizar(false);
+// La copia de la hoja se lee de IndexedDB (o se mueve ahí la primera vez) antes de mostrar la app.
+st.cargarCopia().catch(() => 'local').then(async (r) => {
+  // Si el navegador borró la copia, se baja de la hoja antes de entrar (para no pedir crear un hogar nuevo).
+  if (r === 'recuperar') { try { await st.sincronizar(); } catch { /* se reintenta luego */ } }
+}).finally(() => {
+  entrar();
+  sincronizar(false);
+});
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('./sw.js').catch(() => {});

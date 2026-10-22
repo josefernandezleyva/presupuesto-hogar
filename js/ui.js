@@ -27,6 +27,7 @@ export const ICON = {
   subir: '<path d="M12 19V5M6 11l6-6 6 6"/>',
   bajar: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   reporte: '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/>',
+  basura: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
   copiar: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'
 };
 
@@ -118,5 +119,5 @@ export function hoja(h) {
 
 export function toast(t) {
   if (!t) return '';
-  return `<div class="toast ${t.tipo || ''}" role="status"><span>${esc(t.texto)}</span>${t.accion ? `<button type="button" class="toast-b" data-a="toast-accion">${esc(t.accion.l)}</button>` : ''}</div>`;
+  return `<div class="toast ${t.tipo || ''}"><span>${esc(t.texto)}</span>${t.accion ? `<button type="button" class="toast-b" data-a="toast-accion">${esc(t.accion.l)}</button>` : ''}</div>`;
 }

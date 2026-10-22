@@ -191,7 +191,8 @@ const ajustes = {
         ${lineaSync(c)}
         <button class="btn sec" data-a="sync">${icono('sync', 18)} Sincronizar ahora</button>
         <div id="fotosCola"></div>
-        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) < 4 ? alerta('warn', 'La hoja tiene un Code.gs anterior', 'Los grupos y las cuotas dobles esperan en este celular hasta que el dueño de la hoja pegue el Code.gs de la versión 1.4 y publique una nueva versión.') : ''}
+        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) < 4 ? alerta('warn', 'La hoja tiene un Code.gs anterior', 'Los grupos y las cuotas dobles esperan en este celular hasta que el dueño de la hoja pegue el Code.gs de la versión 1.5 y publique una nueva versión.') : ''}
+        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) >= 4 && !meta.codigoServidor ? '<p class="xs muted">La hoja tiene el Code.gs de la 1.4: funciona igual. El de la 1.5 sincroniza más rápido cuando hay muchos gastos.</p>' : ''}
         ${!meta.demo ? `<p class="xs muted ell">Hoja: ${esc(meta.url || '')}</p>` : ''}
       </section>
       ${admin && !meta.demo ? `<h3 class="dia">Sumar otro celular</h3>
@@ -212,7 +213,8 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center">Presupuesto del Hogar · versión 1.4</p>
+      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 1.5${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
+      <p class="xs muted center">Copia en este celular: ${st.infoCopia().gastos} ${st.infoCopia().gastos === 1 ? 'gasto' : 'gastos'}, en ${esc(st.infoCopia().donde)}</p>
     </main>`;
   },
   montar() {

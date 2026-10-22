@@ -1,5 +1,6 @@
-// Registrar o editar un gasto, en pocos pasos: monto, categoría y Guardar.
-// Arriba: el mes y quién pagó. Luego fecha, reparto y modalidad; al final, nota y foto.
+// Registrar o editar un gasto: descripción, monto (en soles por defecto), categoría y Guardar.
+// Arriba: el mes y quién pagó. Luego fecha, reparto y modalidad; al final, la foto.
+// La descripción se guarda en la columna «nota» de Gastos (la misma de siempre; la hoja no cambia).
 
 import * as L from '../logic.js';
 import * as ops from '../ops.js';
@@ -25,7 +26,7 @@ function fechaEnMes(m, fechaBase) {
 function iniciarNuevo(c) {
   const e = c.estado;
   Object.assign(e, {
-    monto: '', moneda: c.meta.moneda || 'PEN', tc: '', tcManual: false,
+    monto: '', moneda: 'PEN', tc: '', tcManual: false, falta: null, dupOk: false,
     categoria_id: c.query.cat || '', pagado_por: c.meta.personaId,
     fecha: fechaEnMes(c.mes, hoy()), nota: '', tipo: '',
     rep: 'hogar', modalidad: 'Unico', nroCuotas: 3, mesInicio: '', montoCuota: '', sinFin: '1', durN: '12', dobles: [],
@@ -40,9 +41,12 @@ function iniciarEdicion(c, g) {
   const e = c.estado;
   const S = c.S;
   const plan = g.plan_id ? st.fila('Planes', g.plan_id) : null;
+  // Gastos anteriores a la 1.5 pueden no tener descripción: se propone la del plan o el nombre de la categoría.
+  const notaGuardada = String(g.nota || '').trim();
+  const propuesta = notaGuardada ? '' : (String(plan?.descripcion || '').trim() || L.categoria(S, g.categoria_id)?.nombre || '');
   Object.assign(e, {
     id: g.id, monto: String(g.monto), moneda: g.moneda, tc: g.moneda === 'USD' ? String(g.tipo_cambio || '') : '', tcManual: true,
-    categoria_id: g.categoria_id, pagado_por: g.pagado_por, fecha: g.fecha, nota: g.nota || '', tipo: g.tipo || '',
+    categoria_id: g.categoria_id, pagado_por: g.pagado_por, fecha: g.fecha, nota: notaGuardada || propuesta, notaPropuesta: !!propuesta, tipo: g.tipo || '', falta: null,
     modalidad: plan ? plan.modalidad : 'Unico', nroCuotas: 3, mesInicio: g.mes, montoCuota: '',
     sinFin: plan && num(plan.duracion_meses) ? '0' : '1', durN: String(plan && num(plan.duracion_meses) ? plan.duracion_meses : 12),
     dobles: plan ? L.mesesDobles(plan) : [], repite: '1', panel: null
@@ -153,10 +157,54 @@ function tcHtml(c) {
 function etiquetaReparto(c) {
   const { S, estado: e } = c;
   const ps = L.personas(S);
-  const p = e.rep === 'hogar' ? L.participacion(S, mesDe(e.fecha)) : pctsActuales(c);
+  if (e.rep === 'hogar') return 'Hogar ' + L.barrasReparto(S, L.participacion(S, mesDe(e.fecha)));
+  const p = pctsActuales(c);
   const uno = ps.find((x) => num(p[x.id]) === 100);
   if (uno) return 'Todo ' + (uno.alias || uno.nombre.split(' ')[0]);
-  return ps.map((x) => num(p[x.id])).join('/');
+  return L.barrasReparto(S, p);
+}
+
+/** Frase que explica qué reparto se aplica y desde cuándo rige la participación del hogar. */
+function infoReparto(c) {
+  const { S, estado: e } = c;
+  const mes = mesDe(e.fecha);
+  if (e.rep !== 'hogar') return `Reparto propio: ${esc(L.textoReparto(S, pctsActuales(c)))}.`;
+  const v = L.vigencia(S, mes);
+  const desde = v.desde && v.desde <= mes ? `vigente desde ${esc(nombreMes(v.desde).toLowerCase())}` : 'la primera registrada';
+  return `Se reparte como el hogar: ${esc(L.textoReparto(S, v.pcts))}, la participación ${desde}.`;
+}
+
+/** Descripciones usadas antes que coinciden con lo escrito: completan descripción y categoría. */
+function sugerenciasHtml(c) {
+  const { S, estado: e } = c;
+  if (e.id && !e.notaPropuesta) return '';
+  const lista = L.sugerenciasDescripcion(S, e.nota, { max: 4 });
+  if (!lista.length) return '';
+  return `<div class="sugs" role="group" aria-label="Descripciones usadas antes">${lista.map((x, i) => {
+    const cat = L.categoria(S, x.categoria_id);
+    return `<button type="button" class="sug" data-a="sugerencia" data-i="${i}">${esc(x.nota)}${cat ? `<span class="muted"> · ${esc(cat.nombre)}</span>` : ''}</button>`;
+  }).join('')}</div>`;
+}
+
+/** Validación en línea: el primer dato que falta, con el campo que lo marca. */
+function faltante(c) {
+  const e = c.estado;
+  if (!ops.limpiarDescripcion(e.nota)) return { campo: 'nota', msg: 'Escribe una descripción.' };
+  if (!(parseMonto(e.monto) > 0)) return { campo: 'monto', msg: 'Escribe el monto.' };
+  if (!e.categoria_id) return { campo: 'categoria', msg: 'Elige una categoría.' };
+  if (e.moneda === 'USD' && !tcVigente(c)) return { campo: 'tc', msg: 'Escribe el tipo de cambio.' };
+  return null;
+}
+
+const errorDe = (e, campo) => (e.falta?.campo === campo ? `<p class="campo-err" id="err-${campo}" role="alert">${esc(e.falta.msg)}</p>` : '');
+const invalido = (e, campo) => (e.falta?.campo === campo ? ` aria-invalid="true" aria-describedby="err-${campo}"` : '');
+
+function limpiarFalta(c, campo) {
+  const e = c.estado;
+  if (e.falta?.campo !== campo) return;
+  e.falta = null;
+  document.getElementById('err-' + campo)?.remove();
+  document.querySelectorAll(`[data-err="${campo}"]`).forEach((el) => { el.classList.remove('error'); el.querySelector('[aria-invalid]')?.removeAttribute('aria-invalid'); el.removeAttribute('aria-invalid'); });
 }
 
 function presetActivo(c) {
@@ -211,7 +259,7 @@ function doblesHtml(e, nota = '') {
     <p class="xs muted">${e.dobles.length ? `Paga el doble en ${esc(doblesTexto(e))}.` : 'Por ejemplo, préstamos con cuota doble en julio y diciembre.'}${nota ? ' ' + nota : ''}</p>`;
 }
 
-function refrescar(c) {
+function refrescar(c, { sugs = true } = {}) {
   const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
   set('uso', usoHtml(c));
   const conv = document.getElementById('conv');
@@ -220,6 +268,9 @@ function refrescar(c) {
   set('cuotas', cuotasHtml(c));
   set('recInfo', recurrenteHtml(c));
   const pr = document.getElementById('pillRep'); if (pr) pr.textContent = etiquetaReparto(c);
+  set('repInfo', infoReparto(c));
+  // Al salir del campo («change») no se redibujan: el toque sobre una sugerencia debe llegar a su botón.
+  if (sugs) set('sugBox', sugerenciasHtml(c));
   const act = presetActivo(c);
   document.querySelectorAll('[data-a="preset"]').forEach((b) => { b.classList.toggle('on', b.dataset.v === act); });
   const g = document.getElementById('btnGuardar'); if (g) g.innerHTML = textoGuardar(c);
@@ -275,7 +326,7 @@ function hojaCategorias(c) {
 
 /* --------------------------------------------------------------- Vista --- */
 
-export default {
+const pantalla = {
   iniciar(c) {
     if (c.ruta === 'gasto') {
       const g = st.fila('Gastos', c.param);
@@ -324,21 +375,32 @@ export default {
         <div class="chips">${ps.map((p) => `<button type="button" class="chip${p.id === e.pagado_por ? ' on' : ''}" data-a="set" data-k="pagado_por" data-v="${esc(p.id)}">${avatar(p, 24)} ${esc(p.nombre)}</button>`).join('')}</div>
       </section>` : ''}
 
-      <section class="amount">
+      <div class="campo-desc${e.falta?.campo === 'nota' ? ' error' : ''}" data-err="nota">
+        <label class="lbl" for="nota">Descripción</label>
+        <input id="nota" class="input desc-i" data-f="nota" data-keep maxlength="${ops.MAX_DESCRIPCION}" autocomplete="off" autocapitalize="sentences" enterkeyhint="next" placeholder="¿En qué gastaste? Ej.: Supermercado" value="${esc(e.nota)}" aria-required="true"${invalido(e, 'nota')} ${dis}>
+        ${errorDe(e, 'nota')}
+        ${e.notaPropuesta && !bloqueado ? '<p class="xs muted">Este gasto no tenía descripción: se propone el nombre de la categoría. Puedes cambiarla.</p>' : ''}
+      </div>
+      <div id="sugBox">${bloqueado ? '' : sugerenciasHtml(c)}</div>
+
+      <section class="amount${e.falta?.campo === 'monto' ? ' error' : ''}" data-err="monto">
         <span class="monto-s" aria-hidden="true">${SIMBOLO[e.moneda]}</span>
         <label class="sr" for="monto">${e.modalidad === 'Cuotas' && !plan ? 'Monto total' : 'Monto'}</label>
-        <input id="monto" class="monto-i" data-f="monto" data-keep inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0.00" value="${esc(e.monto)}" ${dis}>
+        <input id="monto" class="monto-i" data-f="monto" data-keep inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0.00" value="${esc(e.monto)}"${invalido(e, 'monto')} ${dis}>
         <div class="cur-seg" role="group" aria-label="Moneda">
           <button type="button" class="${e.moneda === 'PEN' ? 'on' : ''}" data-a="moneda" data-v="PEN" aria-pressed="${e.moneda === 'PEN'}" ${dis}>S/</button>
           <button type="button" class="${e.moneda === 'USD' ? 'on' : ''}" data-a="moneda" data-v="USD" aria-pressed="${e.moneda === 'USD'}" ${dis}>US$</button>
         </div>
       </section>
+      ${errorDe(e, 'monto')}
       <div id="tcbox">${tcHtml(c)}</div>
+      ${errorDe(e, 'tc')}
 
-      <button type="button" class="campo-cat${catSel ? '' : ' vacio'}" data-a="listaCat" ${dis} aria-haspopup="dialog">
+      <button type="button" class="campo-cat${catSel ? '' : ' vacio'}${e.falta?.campo === 'categoria' ? ' error' : ''}" data-a="listaCat" data-err="categoria" ${dis} aria-haspopup="dialog"${invalido(e, 'categoria')}>
         <span class="row-m"><span class="lbl">Categoría</span>
           <span class="campo-v">${catSel ? `${puntoCat(catSel)} ${esc(catSel.nombre)} <span class="muted">· ${esc(catSel.grupo || 'Otros')}</span>` : 'Elige una categoría'}</span></span>
         ${icono('adelante', 18)}</button>
+      ${errorDe(e, 'categoria')}
       <div id="uso">${usoHtml(c)}</div>
 
       <div class="pills" role="group" aria-label="Fecha, reparto y modalidad">
@@ -347,11 +409,12 @@ export default {
         ${pill('reparto', `${icono('reparto', 16)}<span id="pillRep">${esc(etiquetaReparto(c))}</span>`)}
         ${pill('modo', `${icono('repetir', 16)}<span>${esc(modoLabel)}</span>${e.dobles.length ? ' <span class="badge soft">×2</span>' : ''}`)}
       </div>
+      <p class="rep-info xs" id="repInfo">${infoReparto(c)}</p>
 
       ${e.panel === 'reparto' ? `<section class="card panel">
         <div class="lbl">¿Cómo se reparte este gasto?</div>
         <div class="chips">
-          <button type="button" class="chip${presetActivo(c) === 'hogar' ? ' on' : ''}" data-a="preset" data-v="hogar">Hogar ${Object.values(L.participacion(S, mes)).join('/')}</button>
+          <button type="button" class="chip${presetActivo(c) === 'hogar' ? ' on' : ''}" data-a="preset" data-v="hogar">Hogar ${L.barrasReparto(S, L.participacion(S, mes))}</button>
           ${ps.map((p) => `<button type="button" class="chip${presetActivo(c) === p.id ? ' on' : ''}" data-a="preset" data-v="${esc(p.id)}">Todo ${esc(p.alias || p.nombre.split(' ')[0])}</button>`).join('')}
           ${ps.length === 2 ? `<button type="button" class="chip${presetActivo(c) === 'mitad' ? ' on' : ''}" data-a="preset" data-v="mitad">50/50</button>` : ''}
         </div>
@@ -367,16 +430,11 @@ export default {
 
       ${e.panel === 'modo' ? `<section class="card panel stack">${panelModo(c, g, plan, tipoEf)}</section>` : ''}
 
-      <div class="pills pills-fin" role="group" aria-label="Nota y foto">
-        ${pill('nota', `${icono('nota', 16)}<span>${e.nota ? esc(e.nota.length > 18 ? e.nota.slice(0, 17) + '…' : e.nota) : 'Nota'}</span>`)}
+      <div class="pills pills-fin" role="group" aria-label="Foto">
         <label class="pill pill-file${tieneEv ? ' on' : ''}${bloqueado ? ' off' : ''}">${icono('foto', 16)}<span>${tieneEv ? 'Foto' : 'Agregar foto'}</span>
           <input type="file" accept="image/*" data-file="ev" aria-label="Agregar foto o captura del gasto" ${dis}></label>
       </div>
 
-      ${e.panel === 'nota' ? `<section class="card panel">
-        <label class="lbl" for="nota">Nota</label>
-        <input id="nota" class="input" data-f="nota" maxlength="80" placeholder="Ej.: Supermercado" value="${esc(e.nota)}" enterkeyhint="done">
-      </section>` : ''}
       <div id="evBox">${evCardHtml(c, g, bloqueado)}</div>
 
       ${edit && !bloqueado && !cerrado ? `<div class="links">
@@ -389,11 +447,17 @@ export default {
 
   montar(raiz, c) {
     const e = c.estado;
-    // En un gasto nuevo el teclado numérico se abre de inmediato.
+    // En un gasto nuevo el cursor empieza en la descripción, el dato principal.
     if (!e.id && !e.montado) {
       e.montado = true;
-      const m = raiz.querySelector('#monto');
-      if (m) setTimeout(() => m.focus(), 60);
+      const d = raiz.querySelector('#nota');
+      if (d) setTimeout(() => d.focus(), 60);
+    }
+    // «Siguiente» en el teclado: de la descripción al monto, con el teclado numérico.
+    const nota = raiz.querySelector('#nota');
+    if (nota && !nota.dataset.enter) {
+      nota.dataset.enter = '1';
+      nota.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); raiz.querySelector('#monto')?.focus(); } });
     }
     const alElegirFoto = (inp) => inp.addEventListener('change', async () => {
       const file = inp.files && inp.files[0];
@@ -426,7 +490,7 @@ export default {
     }
   },
 
-  alEscribir(c, f, el) {
+  alEscribir(c, f, el, ev) {
     const e = c.estado;
     const ps = L.personas(c.S);
     const ponerValor = (id, v) => { const i = document.querySelector(`[data-f="pct_${id}"]`); if (i && i !== document.activeElement) i.value = v; };
@@ -450,12 +514,14 @@ export default {
       }
     }
     if (f === 'tc') e.tcManual = true;
+    if (f === 'nota') e.notaPropuesta = false;
+    limpiarFalta(c, f === 'nota' || f === 'monto' || f === 'tc' ? f : '');
     if (f === 'fecha') {
       if (e.modalidad !== 'Cuotas' || e.planOrig) e.mesInicio = mesDe(e.fecha);
       if (e.moneda === 'USD' && !e.tcManual) e.tc = String(L.tipoCambio(c.S, mesDe(e.fecha)) || '');
       if (e.rep === 'hogar') cargarPcts(c, L.participacion(c.S, mesDe(e.fecha)));
     }
-    refrescar(c);
+    refrescar(c, { sugs: ev?.type !== 'change' });
   },
 
   alElegir(c, k) {
@@ -466,9 +532,21 @@ export default {
     listaCat(c) {
       c.preguntar({ titulo: 'Categoría', html: hojaCategorias(c), botones: [], cancelar: 'Cerrar' });
     },
+    sugerencia(c, d) {
+      const e = c.estado;
+      const x = L.sugerenciasDescripcion(c.S, e.nota, { max: 4 })[Number(d.i)];
+      if (!x) return;
+      e.nota = x.nota;
+      e.notaPropuesta = false;
+      if (x.categoria_id) { e.categoria_id = x.categoria_id; if (!e.tipoManual) e.tipo = ''; }
+      if (e.falta?.campo === 'nota' || e.falta?.campo === 'categoria') e.falta = null;
+      c.render();
+      setTimeout(() => document.getElementById('monto')?.focus(), 30);
+    },
     elegirCat(c, d) {
       const e = c.estado;
       e.categoria_id = d.v;
+      if (e.falta?.campo === 'categoria') e.falta = null;
       if (!e.tipoManual) e.tipo = '';
       c.preguntar(null);
     },
@@ -506,7 +584,6 @@ export default {
     panel(c, d) {
       c.estado.panel = c.estado.panel === d.k ? null : d.k;
       c.render();
-      if (c.estado.panel === 'nota') setTimeout(() => document.getElementById('nota')?.focus(), 30);
     },
     preset(c, d) {
       const e = c.estado;
@@ -539,23 +616,47 @@ export default {
     guardar(c) {
       const e = c.estado;
       const monto = parseMonto(e.monto);
-      if (!(monto > 0)) { document.getElementById('monto')?.focus(); throw new ops.ErrorApp('Escribe el monto.'); }
-      if (!e.categoria_id) throw new ops.ErrorApp('Elige una categoría.');
-      if (e.moneda === 'USD' && !tcVigente(c)) { document.getElementById('tc')?.focus(); throw new ops.ErrorApp('Escribe el tipo de cambio.'); }
+      // Validación en línea: se marca el campo que falta, con su mensaje, y se lleva el cursor ahí.
+      const falta = faltante(c);
+      if (falta) {
+        // El mensaje queda junto al campo; VoiceOver lo lee igual.
+        e.falta = falta;
+        c.render();
+        c.anunciar(falta.msg);
+        const foco = { nota: 'nota', monto: 'monto', tc: 'tc' }[falta.campo];
+        if (foco) document.getElementById(foco)?.focus();
+        else document.querySelector('[data-err="categoria"]')?.focus();
+        return;
+      }
+      e.falta = null;
       const pcts = pctsElegidos(c);
       if (pcts && L.sumaPcts(pcts) !== 100) { e.panel = 'reparto'; c.render(); throw new ops.ErrorApp('El reparto debe sumar 100 %.'); }
       if (e.dobles.length && !c.meta.demo && (num(c.meta.schemaServidor) || 3) < 4 && (!e.planOrig || e.dobles.join(',') !== e.planOrig.dobles)) {
-        throw new ops.ErrorApp('Las cuotas dobles necesitan el Code.gs de la versión 1.4 en la hoja. Pide al dueño de la hoja que lo actualice.');
+        throw new ops.ErrorApp('Las cuotas dobles necesitan el Code.gs de la versión 1.4 o posterior en la hoja. Pide al dueño de la hoja que lo actualice.');
       }
       const f = {
         monto, moneda: e.moneda, tipoCambio: e.moneda === 'USD' ? tcVigente(c) : 1,
-        categoria_id: e.categoria_id, pagado_por: e.pagado_por, fecha: e.fecha, nota: e.nota, tipo: e.tipo || '',
+        categoria_id: e.categoria_id, pagado_por: e.pagado_por, fecha: e.fecha, nota: ops.limpiarDescripcion(e.nota), tipo: e.tipo || '',
         pcts, repHogar: e.rep === 'hogar', modalidad: e.modalidad,
         nroCuotas: e.nroCuotas, mesInicio: e.mesInicio, montoCuota: parseMonto(e.montoCuota) || 0,
         duracion: e.sinFin === '1' ? 0 : num(e.durN), mesesDobles: e.dobles
       };
       const g = e.id ? st.fila('Gastos', e.id) : null;
       const cat = L.categoria(c.S, e.categoria_id);
+      // Aviso de gasto repetido: mismo día, categoría, monto y moneda.
+      const iguales = e.id ? [] : ops.gastosIguales(f);
+      if (iguales.length && !e.dupOk) {
+        const otro = iguales[0];
+        const quien = L.persona(c.S, otro.registrado_por || otro.pagado_por);
+        c.preguntar({
+          titulo: 'Ya hay uno igual',
+          html: `<p class="sm">Ya está registrado <strong>«${esc(otro.nota || cat?.nombre || 'Gasto')}»</strong>, ${esc(cat?.nombre || '')}, ${esc(fmt(num(otro.monto), { moneda: otro.moneda || 'PEN' }))}.</p>
+            <p class="xs muted">${esc(fechaCorta(otro.fecha))}${quien ? ` · lo registró ${esc(quien.alias || quien.nombre)}` : ''}</p>
+            <p class="xs muted">Si es otro gasto, guárdalo igual.</p>`,
+          botones: [{ l: 'Guardar igual', estilo: 'pri', fn: (c2) => { c2.estado.dupOk = true; pantalla.acciones.guardar(c2); } }]
+        });
+        return;
+      }
       const nombreFoto = `${e.fecha} ${cat?.nombre || 'gasto'} ${fmt(monto, { moneda: e.moneda })}.jpg`;
       const terminar = (texto, deshacerId = null) => {
         c.setMes(mesDe(e.fecha));
@@ -577,7 +678,6 @@ export default {
       const cambiosPlan = cambiosDePlan(e);
       const hacer = (alcance) => {
         const id = ops.guardarGasto(f, { id: e.id || null, alcance });
-        st.setMeta({ moneda: e.moneda });
         if (g?.plan_id && cambiosPlan) ops.actualizarPlan(g.plan_id, cambiosPlan, g.mes, { excluir: Math.abs(monto - num(g.monto)) > 0.004 ? g.id : null });
         // La foto se une al gasto (en cuotas o cada mes, a la primera cuota).
         const gid = !e.id && (e.modalidad === 'Cuotas' || e.modalidad === 'Recurrente') ? L.idGastoDePlan(id, 0) : (e.id || id);
@@ -589,7 +689,7 @@ export default {
         terminar(texto, e.id ? null : id);
       };
       const cambioDelGasto = g && (Math.abs(monto - num(g.monto)) > 0.004 || g.categoria_id !== e.categoria_id || g.pagado_por !== e.pagado_por
-        || g.moneda !== e.moneda || (g.nota || '') !== String(e.nota || '').trim() || e.rep !== 'hogar');
+        || g.moneda !== e.moneda || (g.nota || '') !== f.nota || e.rep !== 'hogar');
       if (g?.plan_id && g.estado === L.ESTADO.PROG && cambioDelGasto) {
         c.preguntar({ titulo: '¿A qué gastos aplica el cambio?', texto: 'Este gasto es parte de un plan de cuotas o mensual.', botones: [
           { l: 'Solo a este', estilo: 'sec', fn: () => hacer('este') },
@@ -618,6 +718,8 @@ export default {
     }
   }
 };
+
+export default pantalla;
 
 /** Contenido del panel de modalidad: al registrar, o al editar un gasto suelto, mensual o en cuotas. */
 function panelModo(c, g, plan, tipoEf) {

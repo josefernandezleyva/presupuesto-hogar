@@ -9,8 +9,13 @@ const S = () => st.foto();
 const quien = () => st.getMeta().personaId;
 const ANTIGUO = '2000-01-01T00:00:00.000Z';
 
-export class ErrorApp extends Error {}
-const falla = (m) => { throw new ErrorApp(m); };
+export class ErrorApp extends Error {
+  constructor(m, campo = '') { super(m); this.campo = campo; }
+}
+const falla = (m, campo = '') => { throw new ErrorApp(m, campo); };
+
+/** Largo máximo de la descripción de un gasto (se guarda en la columna nota). */
+export const MAX_DESCRIPCION = 80;
 
 export const COLORES = ['#2F5D8A', '#B4532A', '#6B4FA0', '#2E7D6B', '#A23B72', '#8A6D1F', '#3D6E3A', '#5E5A54'];
 
@@ -146,12 +151,23 @@ export function asegurarGrupos() {
   return faltan.length;
 }
 
-/** Nuevos porcentajes desde un mes en adelante (RF-19). */
+/** Distribuciones guardadas desde meses posteriores a `mes` (las que una nueva reemplaza). */
+export const distribucionesPosteriores = (mes) => L.distribuciones(S()).filter((d) => d.desde > mes);
+
+/**
+ * Nuevos porcentajes desde un mes en adelante (RF-19). La nueva distribución reemplaza las guardadas
+ * desde meses posteriores: sus filas se marcan como eliminadas (no se borran; se recuperan con eliminado = 0).
+ */
 export function guardarParticipacion(mes, pcts) {
+  if (!/^\d{4}-\d{2}$/.test(mes || '')) falla('Elige el mes.');
   if (L.sumaPcts(pcts) !== 100) falla('La participación debe sumar 100 %.');
   const cambios = [];
-  const ids = new Set([...Object.keys(pcts), ...S().Participacion.filter((p) => p.vigente_desde === mes).map((p) => p.persona_id)]);
-  ids.forEach((pid) => cambios.push(['Participacion', { id: `PA_${mes}_${pid}`, persona_id: pid, porcentaje: num(pcts[pid]), vigente_desde: mes }]));
+  const mismas = S().Participacion.filter((p) => L.mesDeVigencia(p.vigente_desde) === mes);
+  const ids = new Set([...Object.keys(pcts), ...mismas.map((p) => p.persona_id)]);
+  // Filas del mismo mes con otro id (escritas a mano en la hoja): se reemplazan por las nuevas.
+  mismas.filter((p) => p.id !== `PA_${mes}_${p.persona_id}`).forEach((p) => cambios.push(['Participacion', { id: p.id, eliminado: 1 }]));
+  ids.forEach((pid) => cambios.push(['Participacion', { id: `PA_${mes}_${pid}`, persona_id: pid, porcentaje: num(pcts[pid]), vigente_desde: mes, eliminado: 0 }]));
+  S().Participacion.filter((p) => L.mesDeVigencia(p.vigente_desde) > mes).forEach((p) => cambios.push(['Participacion', { id: p.id, eliminado: 1 }]));
   st.guardar(cambios);
   // Los programados de planes que siguen el reparto del hogar toman los nuevos porcentajes.
   const s = S();
@@ -199,11 +215,15 @@ function filasReparto(gasto, pcts) {
   return cambios;
 }
 
+/** Descripción limpia: sin espacios de más y con el largo máximo. */
+export const limpiarDescripcion = (t) => String(t ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_DESCRIPCION);
+
 function validarBase(f) {
-  if (!(num(f.monto) > 0)) falla('Escribe un monto mayor que cero.');
-  if (!f.categoria_id) falla('Elige una categoría.');
-  if (!f.pagado_por) falla('Elige quién pagó.');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.fecha || '')) falla('Elige la fecha.');
+  if (!limpiarDescripcion(f.nota)) falla('Escribe una descripción.', 'nota');
+  if (!(num(f.monto) > 0)) falla('Escribe un monto mayor que cero.', 'monto');
+  if (!f.categoria_id) falla('Elige una categoría.', 'categoria');
+  if (!f.pagado_por) falla('Elige quién pagó.', 'pagador');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.fecha || '')) falla('Elige la fecha.', 'fecha');
   if (f.pcts && L.sumaPcts(f.pcts) !== 100) falla('El reparto debe sumar 100 %.');
 }
 
@@ -227,6 +247,16 @@ function tcPara(mes, moneda) {
  * modalidad: 'Unico'|'Cuotas'|'Recurrente', nroCuotas, mesInicio, montoCuota, duracion }.
  * Al editar, `alcance` = 'este' | 'siguientes' para gastos de un plan.
  */
+/**
+ * Gastos iguales ya guardados (misma fecha, categoría, monto y moneda; sin contar anulados),
+ * para avisar antes de guardar uno repetido. Excluye el gasto que se está editando.
+ */
+export function gastosIguales(f, { id = null } = {}) {
+  const monto = r2(num(f.monto));
+  return S().Gastos.filter((g) => g.id !== id && g.estado !== ESTADO.ANUL && g.fecha === f.fecha
+    && g.categoria_id === f.categoria_id && r2(num(g.monto)) === monto && (g.moneda || 'PEN') === (f.moneda || 'PEN'));
+}
+
 export function guardarGasto(f, { id = null, alcance = 'este' } = {}) {
   validarBase(f);
   const s = S();
@@ -248,7 +278,7 @@ export function guardarGasto(f, { id = null, alcance = 'este' } = {}) {
     registrado_por: prev?.registrado_por || quien(),
     tipo: f.tipo || L.categoria(s, f.categoria_id)?.tipo || 'Variable',
     estado: prev ? prev.estado : (f.fecha > hoy() ? ESTADO.PROG : ESTADO.CONF),
-    plan_id: prev?.plan_id || '', nro_cuota: prev?.nro_cuota || '', nota: String(f.nota || '').trim()
+    plan_id: prev?.plan_id || '', nro_cuota: prev?.nro_cuota || '', nota: limpiarDescripcion(f.nota)
   };
   const pcts = f.pcts || (prev ? L.pctsDeGasto(s, prev) : L.participacion(s, mes));
   const cambios = [['Gastos', gasto], ...filasReparto(gasto, pcts)];
@@ -266,7 +296,7 @@ export function guardarGasto(f, { id = null, alcance = 'este' } = {}) {
         cambios.push(['Gastos', otro], ...filasReparto(otro, pctsOtro));
       });
     if (plan) {
-      const reparto = f.repHogar ? (plan.modalidad === 'Recurrente' ? '' : plan.reparto) : (f.pcts ? JSON.stringify(f.pcts) : plan.reparto);
+      const reparto = f.repHogar ? '' : (f.pcts ? JSON.stringify(f.pcts) : plan.reparto);
       cambios.push(['Planes', { id: plan.id, monto_cuota: base, moneda: f.moneda, tipo_cambio: tc, categoria_id: f.categoria_id, pagado_por: f.pagado_por, tipo: gasto.tipo, descripcion: gasto.nota || plan.descripcion, reparto }]);
     }
   }
@@ -289,7 +319,7 @@ function gastoDePlan(plan, k, mes, monto, pcts, estado = ESTADO.PROG) {
 function planBase(f, modalidad) {
   const s = S();
   return {
-    id: uuid(), modalidad, descripcion: String(f.nota || '').trim() || L.categoria(s, f.categoria_id)?.nombre || '',
+    id: uuid(), modalidad, descripcion: limpiarDescripcion(f.nota) || L.categoria(s, f.categoria_id)?.nombre || '',
     moneda: f.moneda, categoria_id: f.categoria_id, pagado_por: f.pagado_por,
     tipo: f.tipo || L.categoria(s, f.categoria_id)?.tipo || 'Variable', dia: Number(f.fecha.slice(8, 10)), estado: 'Activo',
     meses_dobles: L.mesesDobles(f.mesesDobles).join(',')
@@ -304,8 +334,9 @@ function crearCuotas(f) {
   const s = S();
   const q = L.planCuotas(num(f.monto), n, mesInicio, f.mesesDobles, num(f.montoCuota));
   const montos = q.montos;
-  const pcts = f.pcts || L.participacion(s, mesInicio);
-  const plan = { ...planBase(f, 'Cuotas'), monto_total: q.total, nro_cuotas: n, monto_cuota: q.base, mes_inicio: mesInicio, duracion_meses: n, reparto: JSON.stringify(pcts), tipo_cambio: tc };
+  // Con el reparto del hogar, cada cuota sigue la participación vigente de su mes (también si cambia después).
+  const pcts = f.pcts || null;
+  const plan = { ...planBase(f, 'Cuotas'), monto_total: q.total, nro_cuotas: n, monto_cuota: q.base, mes_inicio: mesInicio, duracion_meses: n, reparto: pcts ? JSON.stringify(pcts) : '', tipo_cambio: tc };
   const meses = L.mesesDePlan(plan, mesInicio);
   meses.forEach((m) => { if (L.mesCerrado(s, m)) falla(`${m} está cerrado; no se pueden poner cuotas en ese mes.`); });
   const cambios = [['Planes', plan]];
@@ -490,6 +521,15 @@ export function anularGasto(id, alcance = 'este') {
     cambios.push(['Planes', { id: g.plan_id, estado: 'Cancelado' }]);
   }
   st.guardar(cambios);
+}
+
+/** Deshace una anulación recién hecha (aviso «Deshacer» al deslizar en Gastos): vuelve al estado que tenía. */
+export function restaurarGasto(id, estado) {
+  const g = st.fila('Gastos', id);
+  if (!g) falla('No encontré el gasto.');
+  if (L.mesCerrado(S(), g.mes)) falla(`${g.mes} está cerrado.`);
+  if (estado !== ESTADO.CONF && estado !== ESTADO.PROG) falla('Ese estado no se puede recuperar.');
+  st.guardar([['Gastos', { id, estado }]]);
 }
 
 /* ------------------------------------------------------ Cierre de mes --- */

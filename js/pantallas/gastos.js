@@ -58,13 +58,64 @@ export default {
       ${anulados ? `<p class="muted xs center">${anulados} ${anulados === 1 ? 'gasto anulado no se muestra' : 'gastos anulados no se muestran'}.</p>` : ''}
     </main>${tabbar('gastos')}`;
   },
+  montar(raiz) { deslizar(raiz); },
   acciones: {
     confirmar(c, d) {
       ops.confirmarGasto(d.id);
       c.avisar('Gasto confirmado');
+    },
+    // Deslizar a la izquierda y «Anular» (o el botón que VoiceOver ofrece en cada gasto). Se puede deshacer.
+    'anular-lista'(c, d) {
+      const g = c.S.Gastos.find((x) => x.id === d.id);
+      if (!g) return;
+      const antes = g.estado;
+      ops.anularGasto(g.id, 'este');
+      c.avisar(`«${g.nota || L.categoria(c.S, g.categoria_id)?.nombre || 'Gasto'}» anulado`, '', { l: 'Deshacer', fn: (c2) => { ops.restaurarGasto(g.id, antes); c2.avisar('Gasto recuperado'); } });
     }
   }
 };
+
+const ANCHO = 92; // ancho del botón «Anular» que aparece al deslizar
+
+/** Gesto de iOS: deslizar un gasto a la izquierda muestra «Anular»; un deslizamiento largo anula de una vez. */
+function deslizar(raiz) {
+  let act = null;
+  const cerrarOtros = (menos) => raiz.querySelectorAll('.swipe.abierto').forEach((x) => { if (x !== menos) { x.classList.remove('abierto', 'mov'); x.querySelector('.sw-cont').style.transform = ''; } });
+  raiz.querySelectorAll('.swipe').forEach((it) => {
+    const cont = it.querySelector('.sw-cont');
+    it.addEventListener('touchstart', (ev) => {
+      const t = ev.touches[0];
+      act = { it, x: t.clientX, y: t.clientY, dx: 0, base: it.classList.contains('abierto') ? -ANCHO : 0, eje: null };
+      cerrarOtros(it);
+    }, { passive: true });
+    it.addEventListener('touchmove', (ev) => {
+      if (!act || act.it !== it) return;
+      const t = ev.touches[0];
+      const dx = t.clientX - act.x; const dy = t.clientY - act.y;
+      if (!act.eje && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) act.eje = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      if (act.eje !== 'x') return;
+      act.dx = dx;
+      it.classList.add('mov');
+      const x = Math.min(0, act.base + dx);
+      cont.style.transition = 'none';
+      cont.style.transform = `translateX(${x}px)`;
+      it.classList.toggle('largo', x < -it.offsetWidth * 0.55);
+    }, { passive: true });
+    it.addEventListener('touchend', () => {
+      if (!act || act.it !== it) return;
+      const x = act.base + act.dx;
+      cont.style.transition = '';
+      if (act.eje === 'x' && x < -it.offsetWidth * 0.55) it.querySelector('.sw-anular')?.click();
+      else if (act.eje === 'x' && x < -ANCHO / 2) { it.classList.add('abierto'); cont.style.transform = `translateX(${-ANCHO}px)`; }
+      else { it.classList.remove('abierto'); cont.style.transform = ''; }
+      it.classList.remove('largo', 'mov');
+      // Tras deslizar no se abre el gasto.
+      if (act.eje === 'x') { it.dataset.desliz = '1'; setTimeout(() => { delete it.dataset.desliz; }, 350); }
+      act = null;
+    });
+    it.addEventListener('click', (ev) => { if (it.dataset.desliz && ev.target.closest('.gitem-m')) { ev.preventDefault(); ev.stopPropagation(); } }, true);
+  });
+}
 
 function item(c, g, cerrado) {
   const { S } = c;
@@ -76,7 +127,8 @@ function item(c, g, cerrado) {
     esc(L.persona(S, g.pagado_por)?.nombre || '')
   ].filter(Boolean).join(' · ');
   const prog = g.estado === L.ESTADO.PROG;
-  return `<div class="gitem">
+  const titulo = g.nota || cat?.nombre || 'Gasto';
+  const fila = `<div class="gitem${cerrado ? '' : ' sw-cont'}">
     <a class="gitem-m" href="#/gasto/${esc(g.id)}">
       ${avatar(L.persona(S, g.pagado_por), 32)}
       <span class="row-m"><span class="row-t">${puntoCat(cat)} ${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${prog ? ' <span class="badge soft">Programado</span>' : ''}</span>
@@ -84,5 +136,10 @@ function item(c, g, cerrado) {
       <span class="amt">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}</span>
     </a>
     ${prog && !cerrado ? `<button class="btn mini" data-a="confirmar" data-id="${esc(g.id)}">Confirmar</button>` : ''}
+  </div>`;
+  if (cerrado) return fila;
+  return `<div class="swipe">
+    <div class="sw-acc"><button type="button" class="sw-anular" data-a="anular-lista" data-id="${esc(g.id)}" aria-label="Anular ${esc(titulo)}">${icono('basura', 20)}<span>Anular</span></button></div>
+    ${fila}
   </div>`;
 }

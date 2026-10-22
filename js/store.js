@@ -2,6 +2,7 @@
 // Cada fila lleva id, version, actualizado_en y eliminado. Gana el último cambio.
 
 import { llamar } from './api.js';
+import * as idb from './idb.js';
 
 export const TABLAS = ['Config', 'Personas', 'Participacion', 'Grupos', 'Categorias', 'TiposCambio', 'Gastos',
   'GastosReparto', 'Planes', 'Ingresos', 'Presupuesto', 'Liquidaciones', 'Cierres', 'CierresSaldos'];
@@ -32,10 +33,73 @@ export function cargar() {
   rev++;
 }
 
+/*
+ * Desde la 1.5 la copia de la hoja vive en IndexedDB (mucho más espacio que los ~5 MB de localStorage).
+ * La cola de cambios pendientes y los datos de conexión siguen en localStorage: son pequeños y se
+ * guardan al instante, así que un cambio nunca se pierde aunque se cierre la app.
+ * Si IndexedDB no está disponible, todo sigue como antes, en localStorage.
+ */
+const COPIA = 'db';
+const enIdb = () => meta.copia === 'idb';
+/*
+ * Marca de sincronización. Con la copia en IndexedDB se guarda como `sinceIdb` y `since` queda en 0:
+ * si alguien vuelve a instalar una versión anterior (que lee la copia de localStorage, ya vacía),
+ * esa versión baja la hoja completa en vez de quedarse sin datos.
+ */
+const marca = () => Number(enIdb() ? meta.sinceIdb : meta.since) || 0;
+function ponerMarca(v) { if (enIdb()) meta = { ...meta, sinceIdb: v, since: 0 }; else meta = { ...meta, since: v }; }
+
+/** Se llama al arrancar, después de `cargar()`: trae la copia de IndexedDB o la mueve ahí. */
+export async function cargarCopia() {
+  if (!(await idb.disponible())) return 'local';
+  if (enIdb()) {
+    const guardada = await idb.leer('copia', COPIA);
+    if (guardada && typeof guardada === 'object') { db = { ...vacio(), ...guardada }; rev++; return 'idb'; }
+    // El navegador borró la copia: se baja completa de la hoja. La cola pendiente sigue intacta.
+    db = vacio();
+    TABLAS.forEach((t) => Object.entries(outbox[t]).forEach(([id, r]) => { db[t][id] = r; }));
+    meta = { ...meta, since: 0, sinceIdb: 0 };
+    escribir('meta', meta);
+    rev++;
+    avisar();
+    return 'recuperar';
+  }
+  // Primera vez con la 1.5: se mueve la copia de localStorage a IndexedDB y se comprueba antes de borrarla.
+  if (!(await idb.guardarSeguro('copia', COPIA, db))) return 'local';
+  const prueba = await idb.leer('copia', COPIA);
+  const cuenta = (x) => TABLAS.reduce((a, t) => a + Object.keys((x && x[t]) || {}).length, 0);
+  if (!prueba || cuenta(prueba) !== cuenta(db)) return 'local';
+  meta = { ...meta, copia: 'idb', sinceIdb: Number(meta.since) || 0, since: 0 };
+  if (!escribir('meta', meta)) return 'local';
+  try { localStorage.removeItem(K + 'db'); } catch { /* nada */ }
+  return 'migrada';
+}
+
+let cadena = Promise.resolve(true);
+/** Guarda la copia en IndexedDB, en orden. Devuelve si se guardó. */
+function guardarCopiaIdb() {
+  cadena = cadena.then(() => idb.guardarSeguro('copia', COPIA, db)).catch(() => false);
+  return cadena;
+}
+
 function persistir() {
-  const ok = escribir('outbox', outbox) && escribir('db', db);
+  const ok = escribir('outbox', outbox) && (enIdb() || escribir('db', db));
   if (!ok) estadoSync.error = 'almacenamiento';
+  if (enIdb()) guardarCopiaIdb().then((v) => { if (!v) estadoSync.error = 'almacenamiento'; });
   return ok;
+}
+
+/** Como `persistir`, pero espera a que la copia quede guardada (antes de avanzar la marca de sincronización). */
+async function persistirSeguro() {
+  if (!escribir('outbox', outbox)) return false;
+  if (!enIdb()) return escribir('db', db);
+  return guardarCopiaIdb();
+}
+
+/** Tamaño aproximado de la copia local y dónde está (para Ajustes). */
+export function infoCopia() {
+  const filas = TABLAS.reduce((a, t) => a + Object.keys(db[t]).length, 0);
+  return { donde: enIdb() ? 'IndexedDB' : 'localStorage', filas, gastos: Object.keys(db.Gastos).length };
 }
 function avisar() { rev++; oyentes.forEach((f) => { try { f(); } catch (e) { console.error(e); } }); }
 export function suscribir(fn) { oyentes.add(fn); return () => oyentes.delete(fn); }
@@ -125,12 +189,13 @@ export function sincronizar() {
     TABLAS.forEach((t) => { enviados[t] = Object.values(outbox[t]); });
     try {
       const t0 = Date.now();
-      const res = await llamar(meta, { action: 'sync', since: meta.since || 0, changes: enviados });
+      const res = await llamar(meta, { action: 'sync', since: marca(), changes: enviados });
       if (!res || !res.ok) throw new Error(res?.error || 'respuesta_invalida');
       if (res.serverTime) meta.desfase = res.serverTime - Math.round((t0 + Date.now()) / 2);
       let rechazados = 0;
       // Versión del Code.gs de la hoja (las anteriores a la 4 no la informan al sincronizar).
       meta.schemaServidor = Number(res.schema) || 3;
+      meta.codigoServidor = res.codigo ? String(res.codigo) : '';
       TABLAS.forEach((t) => {
         // Una pestaña que la hoja todavía no tiene (Code.gs anterior): sus cambios esperan en la cola.
         if (res.accepted && !(t in res.accepted)) return;
@@ -153,8 +218,8 @@ export function sincronizar() {
         });
       });
       // Primero se guarda la copia; solo si se guardó se avanza la marca de sincronización.
-      if (!persistir()) throw new Error('almacenamiento');
-      meta.since = res.maxTs || meta.since || 0;
+      if (!(await persistirSeguro())) throw new Error('almacenamiento');
+      ponerMarca(res.maxTs || marca());
       meta.ultimoSync = new Date().toISOString();
       if (!escribir('meta', meta)) throw new Error('almacenamiento');
       estadoSync.error = null;
@@ -176,5 +241,7 @@ export function sincronizar() {
 export function reiniciar() {
   db = vacio(); outbox = vacio(); meta = {};
   try { Object.keys(localStorage).filter((k) => k.startsWith(K)).forEach((k) => localStorage.removeItem(k)); } catch { /* sin almacenamiento */ }
+  // Sin meta.copia, una copia vieja en IndexedDB se ignora al arrancar; igual se borra.
+  idb.borrar('copia', COPIA).catch(() => {});
   avisar();
 }

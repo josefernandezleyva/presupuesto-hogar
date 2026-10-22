@@ -1,7 +1,7 @@
 // Service worker: guarda la app en el celular para que abra sin conexión.
 // Al publicar una versión nueva, cambia VERSION para que los celulares la descarguen.
 
-const VERSION = 'pp-1.4.0';
+const VERSION = 'pp-1.5.0';
 const ARCHIVOS = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
   './js/main.js', './js/store.js', './js/api.js', './js/demo.js', './js/logic.js', './js/ops.js',

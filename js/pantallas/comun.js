@@ -68,10 +68,36 @@ export function tarjetaPropuesta(c, mes) {
   </section>`;
 }
 
-/** Acción compartida: aplica la participación propuesta desde un mes. */
+/**
+ * Guarda una distribución desde `mes`, pidiendo confirmación con lo que cambia:
+ * la distribución que regía y las guardadas desde meses posteriores, que se reemplazan.
+ */
+export function confirmarDistribucion(c, ops, mes, pcts, { siempre = false, alGuardar = null } = {}) {
+  const { S } = c;
+  const posteriores = ops.distribucionesPosteriores(mes);
+  const guardar = (c2) => {
+    ops.guardarParticipacion(mes, pcts);
+    if (alGuardar) alGuardar(c2);
+    c2.avisar(`Participación ${L.barrasReparto(S, pcts)} desde ${nombreMes(mes).toLowerCase()}`);
+  };
+  if (!siempre && !posteriores.length) { guardar(c); return; }
+  const antes = L.participacion(S, mes);
+  c.preguntar({
+    titulo: `Participación desde ${nombreMes(mes).toLowerCase()}`,
+    html: `<div class="stack-sm sm">
+      <div class="split"><span class="muted">Rige ahora</span><span>${esc(L.textoReparto(S, antes))}</span></div>
+      <div class="split"><span class="muted">Desde ${esc(nombreMes(mes).toLowerCase())}</span><strong>${esc(L.textoReparto(S, pcts))}</strong></div>
+      ${posteriores.length ? `<p class="bad-t">Se reemplaza${posteriores.length > 1 ? 'n' : ''} ${posteriores.length === 1 ? 'el cambio guardado' : `los ${posteriores.length} cambios guardados`} desde un mes posterior:</p>
+        <ul class="lista-sm">${posteriores.map((d) => `<li>${esc(nombreMes(d.desde))}: ${esc(L.textoReparto(S, d.pcts))}</li>`).join('')}</ul>` : ''}
+      <p class="xs muted">Los gastos ya registrados conservan su reparto. Los nuevos y los mensuales y cuotas programados desde ese mes usan la nueva participación.</p>
+    </div>`,
+    botones: [{ l: posteriores.length ? 'Reemplazar y guardar' : 'Guardar', estilo: 'pri', fn: guardar }]
+  });
+}
+
+/** Acción compartida: aplica la participación propuesta desde un mes, con confirmación. */
 export function usarPropuesta(c, d, ops) {
   const prop = L.participacionPorIngresos(c.S, d.m);
   if (!prop?.pcts) return;
-  ops.guardarParticipacion(d.m, prop.pcts);
-  c.avisar(`Participación actualizada desde ${nombreMes(d.m).toLowerCase()}`);
+  confirmarDistribucion(c, ops, d.m, prop.pcts, { siempre: true });
 }

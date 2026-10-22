@@ -5,7 +5,7 @@ import * as ops from '../ops.js';
 import * as st from '../store.js';
 import { esc, fmt0, nombreMes, num, r2, mesActual } from '../util.js';
 import { encabezado, fila, avatar, icono, alerta, segmentado } from '../ui.js';
-import { puntoCat, tarjetaPropuesta, usarPropuesta } from './comun.js';
+import { puntoCat, tarjetaPropuesta, usarPropuesta, confirmarDistribucion } from './comun.js';
 import { norm } from '../util.js';
 
 const flecha = icono('adelante', 18);
@@ -15,8 +15,10 @@ const personas = {
     const { S, admin, estado: e } = c;
     const todas = L.personas(S, { todas: true });
     const act = L.personas(S);
-    const part = L.participacion(S, mesActual());
-    const desde = S.Participacion.filter((p) => p.vigente_desde <= mesActual()).reduce((m, p) => (p.vigente_desde > m ? p.vigente_desde : m), '');
+    const vig = L.vigencia(S, mesActual());
+    const part = vig.pcts;
+    const desde = vig.desde;
+    const proximas = L.distribuciones(S).filter((d) => d.desde > mesActual());
     const total = Object.values(part).reduce((a, b) => a + b, 0) || 1;
     if (e.editPart && e.mesPart === undefined) {
       e.mesPart = mesActual();
@@ -31,13 +33,14 @@ const personas = {
         <div class="pbar" role="img" aria-label="${act.map((p) => `${esc(p.nombre)} ${part[p.id] || 0} %`).join(', ')}">
           ${act.filter((p) => part[p.id]).map((p) => `<div style="width:${(part[p.id] / total) * 100}%;background:${esc(p.color)}">${part[p.id]} %</div>`).join('')}
         </div>
+        ${proximas.length ? `<p class="xs muted">Próximos cambios: ${proximas.map((d) => `desde ${esc(nombreMes(d.desde).toLowerCase())}, ${esc(L.textoReparto(S, d.pcts))}`).join('; ')}.</p>` : ''}
         ${admin && !e.editPart ? '<button class="btn sec" data-a="toggle" data-k="editPart">Cambiar desde un mes</button>' : ''}
         ${e.editPart ? `
           <label class="frow"><span class="muted">Vigente desde</span><input type="month" class="inl" data-f="mesPart" value="${esc(e.mesPart)}"></label>
           ${act.map((p) => `<label class="frow"><span>${avatar(p, 24)} ${esc(p.nombre)}</span><span class="pct-w"><input class="inl pct" data-f="pp_${esc(p.id)}" inputmode="decimal" value="${esc(e['pp_' + p.id])}"> %</span></label>`).join('')}
           <p id="sumaPart" class="sm ${sumaNueva === 100 ? 'ok-t' : 'bad-t'}">Suma ${sumaNueva} %</p>
           ${L.participacionPorIngresos(S, e.mesPart || mesActual())?.pcts ? '<button type="button" class="link" data-a="proponer">Proponer según los sueldos</button>' : ''}
-          <p class="xs muted">Los gastos ya registrados conservan su reparto. Los nuevos desde ese mes usan estos porcentajes.</p>
+          <p class="xs muted">Rige desde ese mes en adelante y reemplaza los cambios guardados desde meses posteriores. Los gastos ya registrados conservan su reparto.</p>
           <div class="split gap"><button class="btn ghost" data-a="toggle" data-k="editPart">Cancelar</button><button class="btn pri" data-a="guardar-part">Guardar</button></div>` : ''}
       </section>
       ${!e.editPart ? tarjetaPropuesta(c, mesActual()) : ''}
@@ -66,9 +69,8 @@ const personas = {
       const pcts = {};
       L.personas(c.S).forEach((p) => { pcts[p.id] = num(c.estado['pp_' + p.id]); });
       if (!/^\d{4}-\d{2}$/.test(c.estado.mesPart || '')) throw new ops.ErrorApp('Elige el mes.');
-      ops.guardarParticipacion(c.estado.mesPart, pcts);
-      Object.keys(c.estado).forEach((k) => delete c.estado[k]);
-      c.avisar('Participación guardada');
+      if (L.sumaPcts(pcts) !== 100) throw new ops.ErrorApp('La participación debe sumar 100 %.');
+      confirmarDistribucion(c, ops, c.estado.mesPart, pcts, { alGuardar: (c2) => { Object.keys(c2.estado).forEach((k) => delete c2.estado[k]); c2.render(); } });
     }
   }
 };
@@ -182,7 +184,7 @@ const grupos = {
     <main class="pad">
       <p class="muted sm">Los grupos ordenan las categorías al registrar un gasto, en Categorías y en el reporte.</p>
       ${!admin ? alerta('info', 'Solo el administrador crea o cambia grupos') : ''}
-      ${viejo ? alerta('warn', 'La hoja aún no tiene la pestaña Grupos', 'Los cambios esperan en este celular y suben cuando el dueño de la hoja pegue el Code.gs de la versión 1.4.') : ''}
+      ${viejo ? alerta('warn', 'La hoja aún no tiene la pestaña Grupos', 'Los cambios esperan en este celular y suben cuando el dueño de la hoja pegue el Code.gs de la versión 1.4 o posterior.') : ''}
       <section class="card list">
         ${lista.map((g, i) => `<div class="row grupo-row">
           <span class="dot dot-l" style="background:${esc(g.color)}" aria-hidden="true"></span>

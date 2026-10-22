@@ -32,10 +32,24 @@
         document.querySelector('link[rel="icon"]').href = './icons/' + ic + '/icon-192.png';
         document.querySelector('link[rel="manifest"]').href = './manifest-' + ic + '.webmanifest';
       } } catch (e) { /* sin almacenamiento */ }
+    // Tamaño del texto de iOS (Dynamic Type): el texto de la app crece o se achica con el del iPhone.
+    // Con el tamaño estándar de iOS (17 pt) la app queda igual que antes (15 px de base).
+    window.ppTextoSistema = function () {
+      try {
+        if (!(window.CSS && CSS.supports && CSS.supports('font', '-apple-system-body'))) return;
+        var pr = document.createElement('span');
+        pr.style.cssText = 'font: -apple-system-body; position: absolute; visibility: hidden';
+        document.documentElement.appendChild(pr);
+        var fs = parseFloat(getComputedStyle(pr).fontSize);
+        pr.remove();
+        if (fs > 0) document.documentElement.style.fontSize = Math.min(22, Math.max(15, Math.round(15 * fs / 17 * 10) / 10)) + 'px';
+      } catch (e) { /* tamaño estándar */ }
+    };
+    window.ppTextoSistema();
   </script>
 </head>
 <body>
-  <div id="app" aria-live="polite"><main class="pad"><p class="muted">Cargando…</p></main></div>
+  <div id="app"><main class="pad"><p class="muted">Cargando…</p></main></div>
   <noscript>Esta app necesita JavaScript.</noscript>
   <script type="module" src="./js/main.js"></script>
 </body>
