@@ -238,7 +238,7 @@ function tcElegido(f, mes) {
 
 function tcPara(mes, moneda) {
   const tc = L.tipoCambio(S(), mes, moneda);
-  if (!tc) falla('Falta el tipo de cambio de dólares para ' + mes + '. El administrador lo carga en Más > Tipo de cambio.');
+  if (!tc) falla('Falta el tipo de cambio de dólares para ' + mes + '. El administrador lo carga en Hogar y ajustes › Tipo de cambio.');
   return tc;
 }
 

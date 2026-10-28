@@ -1,9 +1,9 @@
-// Cierre de mes y saldos entre personas (RF-37 a RF-40).
+// Cuentas (2.0, pestaña): saldo entre personas, pagos entre ustedes y cierre de mes (RF-37 a RF-40).
 
 import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import { esc, fmt, fmt0, nombreMes, sumarMeses, hoy, parseMonto, mesActual } from '../util.js';
-import { encabezado, barraMes, avatar, alerta, dinero0, dinero, chips, icono } from '../ui.js';
+import { tituloGrande, tabbar, avatar, alerta, dinero0, dinero, chips, icono } from '../ui.js';
 import { fraseSaldo, nombre } from './comun.js';
 
 export default {
@@ -26,13 +26,15 @@ export default {
       proyeccion = L.transferencias(L.saldosMes(S2, mes));
     }
 
-    return `${encabezado({ titulo: 'Cierre de mes' })}
-    <main class="pad">
-      ${barraMes(mes, { derecha: `<span class="badge ${cerrado ? '' : 'ok'}">${cerrado ? 'Cerrado' : 'Abierto'}</span>` })}
+    const t0 = trans[0];
+    return `<main class="pad has-tabs">
+      ${tituloGrande({ titulo: 'Cuentas', mes, cerrado, derecha: `<span class="badge ${cerrado ? '' : 'ok'}">${cerrado ? 'Cerrado' : 'Abierto'}</span>` })}
 
-      <section class="card dark">
+      <section class="card cuentas-hero">
+        <div class="ch-avs">${t0 ? `${avatar(L.persona(S, t0.de), 48)}<span class="ch-fl">${icono('adelante', 20)}</span>${avatar(L.persona(S, t0.a), 48)}` : personas.map((p) => avatar(p, 48)).join('')}</div>
         <div class="lbl">Saldo entre personas${cerrado ? ' al cierre' : ''}</div>
-        <div class="frase">${fraseSaldo(S, trans)}</div>
+        <div class="frase num">${fraseSaldo(S, trans)}</div>
+        ${!cerrado && t0 ? `<button class="btn pri" data-a="sugerido" data-de="${esc(t0.de)}" data-para="${esc(t0.a)}" data-m="${t0.monto}">Registrar este pago</button>` : ''}
         ${arrastre.length ? `<div class="xs">Incluye el saldo que viene de ${esc(nombreMes(sumarMeses(mes, -1), { anio: false }).toLowerCase())}: ${arrastre.filter((f) => f.saldo_inicial < 0).map((f) => `${nombre(S, f.persona_id)} arrastra ${esc(fmt(-f.saldo_inicial))}`).join(', ')}.</div>` : ''}
       </section>
 
@@ -78,7 +80,7 @@ export default {
                <button class="btn pri" data-a="cerrar">Cerrar ${esc(nombreMes(mes, { anio: false }).toLowerCase())}</button>`
             : '<p class="muted sm center">Solo el administrador puede cerrar el mes.</p>'}
       </div>
-    </main>`;
+    </main>${tabbar('cierre')}`;
   },
   acciones: {
     sugerido(c, d) {

@@ -17,14 +17,19 @@ const menu = {
   vista(c) {
     const { S, yo, admin, mes } = c;
     const tc = L.tipoCambioDelMes(S, mes);
-    return `<main class="pad has-tabs">
-      <div class="mesbar"><h1 class="mes-t">Más</h1></div>
+    const avisosTxt = c.meta.demo ? 'No disponibles en el modo de ejemplo' : c.meta.avisos ? 'Activados en este iPhone' : 'Desactivados';
+    return `${encabezado({ titulo: 'Hogar y ajustes' })}
+    <main class="pad">
       <section class="card list">
-        ${fila({ izq: avatar(yo, 36), titulo: esc(yo?.nombre || ''), sub: `${esc(yo?.rol || '')} · este celular`, der: flecha, href: '#/ajustes' })}
+        ${fila({ izq: avatar(yo, 44), titulo: esc(yo?.nombre || ''), sub: `${esc(yo?.rol || '')} · este celular`, der: flecha, href: '#/ajustes' })}
+      </section>
+      <h3 class="dia">Avisos</h3>
+      <section class="card list">
+        ${fila({ izq: icono('campana', 22), titulo: 'Avisos de gastos nuevos', sub: avisosTxt, der: flecha, href: '#/avisos' })}
+        ${fila({ izq: icono('reloj', 22), titulo: 'Novedades', sub: 'Lo que registró la otra persona', der: flecha, href: '#/novedades' })}
       </section>
       <h3 class="dia">Mes</h3>
       <section class="card list">
-        ${fila({ titulo: 'Cierre de mes', sub: 'Saldos, pagos entre personas y cierre', der: flecha, href: '#/cierre' })}
         ${fila({ titulo: 'Ingresos', sub: `Sueldos de ${esc(nombreMes(mes).toLowerCase())}`, der: flecha, href: '#/ingresos' })}
         ${fila({ titulo: 'Compromisos', sub: 'Cuotas y recurrentes que vienen', der: flecha, href: '#/compromisos' })}
         ${fila({ titulo: 'Reporte de gastos', sub: 'Filtrar, agrupar y exportar a Excel', der: flecha, href: '#/reporte' })}
@@ -41,7 +46,8 @@ const menu = {
         ${fila({ izq: icono('paleta', 22), titulo: 'Apariencia', sub: `${esc(ESTILOS.find((m) => m.v === leerTema().estilo)?.l || '')} · ${esc(MODOS.find((m) => m.v === leerTema().modo).l)} · ${esc(ACENTOS.find((a) => a.v === leerTema().acento)?.l || 'Verde')}`, der: flecha, href: '#/apariencia' })}
         ${fila({ titulo: 'Ajustes y sincronización', sub: lineaSync(c).replace(/<[^>]+>/g, ''), der: flecha, href: '#/ajustes' })}
       </section>
-    </main>${tabbar('mas')}`;
+      <p class="xs muted center">Presupuesto del Hogar · versión 2.0</p>
+    </main>`;
   }
 };
 
@@ -186,13 +192,17 @@ const ajustes = {
       <section class="card list">
         ${fila({ izq: avatar(yo, 36), titulo: esc(yo?.nombre || ''), sub: esc(yo?.rol || ''), der: '<span class="link">Cambiar</span>', a: 'cambiar-persona' })}
       </section>
+      <h3 class="dia">Avisos</h3>
+      <section class="card list">
+        ${fila({ izq: icono('campana', 22), titulo: 'Avisos de gastos nuevos', sub: meta.demo ? 'No disponibles en el modo de ejemplo' : meta.avisos ? 'Activados en este iPhone' : 'Desactivados', der: icono('adelante', 18), href: '#/avisos' })}
+      </section>
       <h3 class="dia">Sincronización</h3>
       <section class="card stack">
         ${lineaSync(c)}
         <button class="btn sec" data-a="sync">${icono('sync', 18)} Sincronizar ahora</button>
         <div id="fotosCola"></div>
-        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) < 4 ? alerta('warn', 'La hoja tiene un Code.gs anterior', 'Los grupos y las cuotas dobles esperan en este celular hasta que el dueño de la hoja pegue el Code.gs de la versión 1.5 y publique una nueva versión.') : ''}
-        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) >= 4 && !meta.codigoServidor ? '<p class="xs muted">La hoja tiene el Code.gs de la 1.4: funciona igual. El de la 1.5 sincroniza más rápido cuando hay muchos gastos.</p>' : ''}
+        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) < 4 ? alerta('warn', 'La hoja tiene un Code.gs anterior', 'Los grupos y las cuotas dobles esperan en este celular hasta que el dueño de la hoja pegue el Code.gs de la versión 2.0 y publique una nueva versión.') : ''}
+        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) >= 4 && meta.codigoServidor !== '2.0' ? `<p class="xs muted">La hoja tiene el Code.gs ${esc(meta.codigoServidor || '1.4')}: todo funciona, salvo los avisos al celular, que necesitan el de la 2.0.</p>` : ''}
         ${!meta.demo ? `<p class="xs muted ell">Hoja: ${esc(meta.url || '')}</p>` : ''}
       </section>
       ${admin && !meta.demo ? `<h3 class="dia">Sumar otro celular</h3>
@@ -213,7 +223,7 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 1.5${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
+      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 2.0${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
       <p class="xs muted center">Copia en este celular: ${st.infoCopia().gastos} ${st.infoCopia().gastos === 1 ? 'gasto' : 'gastos'}, en ${esc(st.infoCopia().donde)}</p>
     </main>`;
   },
@@ -319,7 +329,7 @@ const apariencia = {
         <button type="button" class="btn pri" tabindex="-1">Botón principal</button>
       </section>
       <p class="xs muted">Se guarda solo en este celular; cada persona elige el suyo.</p>
-    </main>${tabbar('mas')}`;
+    </main>`;
   },
   acciones: {
     icono(c, d) { guardarIcono(d.v); c.estado.icoCambiado = true; c.render(); },

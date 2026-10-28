@@ -670,3 +670,114 @@ export function reporte(S, f) {
       .sort((a, b) => b.pagado - a.pagado)
   };
 }
+
+/* ------------------------------------------------- 2.0 · Novedades y ayudas --- */
+
+/** Filas creadas automáticamente (renovación de mensuales) llevan esta fecha antigua y no son novedades. */
+const esGenerada = (g) => String(g.creado_en || '').startsWith('2000-');
+const autorDe = (g) => g.registrado_por || g.creado_por || '';
+
+/**
+ * Gastos que registró otra persona, del más reciente al más antiguo. Un plan (cuotas o mensual) cuenta una
+ * vez, con su primer mes. `visto` (ISO) marca cuáles son nuevos para este celular.
+ */
+export function novedades(S, yo, { visto = '', max = 40 } = {}) {
+  return cache(S, `nov:${yo}:${visto}:${max}`, () => {
+    const planes = new Map();
+    const lista = [];
+    for (const g of S.Gastos) {
+      const autor = autorDe(g);
+      if (!autor || autor === yo || esGenerada(g)) continue;
+      if (g.plan_id) {
+        const prev = planes.get(g.plan_id);
+        if (!prev || num(g.nro_cuota) < num(prev.nro_cuota)) planes.set(g.plan_id, g);
+        continue;
+      }
+      lista.push(g);
+    }
+    lista.push(...planes.values());
+    return lista
+      .sort((a, b) => String(b.creado_en).localeCompare(String(a.creado_en)))
+      .slice(0, max)
+      .map((g) => ({
+        gasto: g,
+        plan: g.plan_id ? idx(S).plan.get(g.plan_id) || null : null,
+        autor: autorDe(g),
+        cuando: g.creado_en,
+        nueva: !!visto && String(g.creado_en) > visto,
+        parte: montoPara(S, g, yo)
+      }));
+  });
+}
+export const novedadesSinVer = (S, yo, visto) => (visto ? novedades(S, yo, { visto }).filter((n) => n.nueva).length : 0);
+
+/** Programados por confirmar hasta `dias` adelante (incluye los atrasados), por fecha. */
+export function proximos(S, hoyStr, { dias = 31 } = {}) {
+  const lim = new Date(hoyStr + 'T12:00:00'); lim.setDate(lim.getDate() + dias);
+  const tope = lim.toISOString().slice(0, 10);
+  const mes = hoyStr.slice(0, 7);
+  const meses = [sumarMeses(mes, -1), mes, sumarMeses(mes, 1)];
+  return meses.flatMap((m) => gastosMes(S, m, [ESTADO.PROG]))
+    .filter((g) => g.fecha <= tope && !mesCerrado(S, g.mes))
+    .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0))
+    .map((g) => ({ gasto: g, atrasado: g.fecha < hoyStr }));
+}
+
+/** Cuánto se puede gastar por día lo que queda del mes sin pasar el presupuesto (solo el mes en curso). */
+export function disponiblePorDia(S, mes, hoyStr) {
+  if (hoyStr.slice(0, 7) !== mes) return null;
+  const r = resumenMes(S, mes);
+  if (!(r.presupuesto > 0)) return null;
+  const quedan = diasEnMes(mes) - Number(hoyStr.slice(8, 10)) + 1;
+  const disponible = r2(r.presupuesto - r.gastado - r.comprometido);
+  return { disponible, dias: quedan, porDia: quedan > 0 ? r2(Math.max(0, disponible) / quedan) : 0 };
+}
+
+/** Busca gastos por descripción, categoría, grupo, quién pagó o monto, en todos los meses. */
+export function buscarGastos(S, texto, { max = 60 } = {}) {
+  const q = norm(texto);
+  if (!q) return [];
+  const monto = Number(q.replace(',', '.'));
+  return S.Gastos.filter((g) => g.estado !== ESTADO.ANUL)
+    .filter((g) => {
+      const cat = categoria(S, g.categoria_id);
+      const hay = norm([g.nota, cat?.nombre, cat?.grupo, persona(S, g.pagado_por)?.nombre].join(' '));
+      return hay.includes(q) || (monto > 0 && Math.abs(num(g.monto) - monto) < 0.005);
+    })
+    .sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))
+    .slice(0, max);
+}
+
+const nombreCorto = (p) => p?.alias || String(p?.nombre || '').split(' ')[0] || '';
+const dineroTxt = (n, moneda = 'PEN') => `${moneda === 'USD' ? 'US$' : 'S/'} ${Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/**
+ * Avisos push de un registro nuevo para cada otra persona del hogar: quién lo registró, la descripción,
+ * el monto, la categoría y cuánto le toca a quien lo recibe. `id` es un gasto o un plan.
+ */
+export function avisosDeRegistro(S, id, yo) {
+  const plan = idx(S).plan.get(id) || null;
+  const g = plan ? S.Gastos.find((x) => x.id === idGastoDePlan(id, 0)) || S.Gastos.find((x) => x.plan_id === id) : S.Gastos.find((x) => x.id === id);
+  if (!g) return [];
+  const autor = persona(S, yo);
+  const cat = categoria(S, g.categoria_id);
+  const desc = String(g.nota || plan?.descripcion || cat?.nombre || 'Gasto');
+  const pagador = persona(S, g.pagado_por);
+  let que;
+  if (plan?.modalidad === 'Cuotas') que = `${desc} · ${dineroTxt(plan.monto_total, plan.moneda)} en ${plan.nro_cuotas} cuotas de ${dineroTxt(plan.monto_cuota, plan.moneda)}`;
+  else if (plan?.modalidad === 'Recurrente') que = `${desc} · ${dineroTxt(plan.monto_cuota, plan.moneda)} cada mes`;
+  else que = `${desc} · ${dineroTxt(g.monto, g.moneda)}`;
+  return personas(S).filter((p) => p.id !== yo).map((p) => {
+    const reparto = repartoDeGasto(S, g).find((x) => x.persona_id === p.id);
+    const parte = reparto ? reparto.monto_soles : 0;
+    const toca = parte > 0 ? `Te toca ${dineroTxt(parte)} (${Number(reparto.porcentaje).toLocaleString('es-PE', { maximumFractionDigits: 2 })} %)${plan ? ' al mes' : ''}` : 'No te toca nada';
+    const pago = g.pagado_por === p.id ? ' · lo pagaste tú' : g.pagado_por !== yo && pagador ? ` · pagó ${nombreCorto(pagador)}` : '';
+    return {
+      para: p.id,
+      titulo: `${nombreCorto(autor)} registró un gasto`,
+      cuerpo: `${que}\n${cat?.nombre || 'Sin categoría'} · ${toca}${pago}`,
+      url: `#/gasto/${g.id}`,
+      tag: plan ? plan.id : g.id
+    };
+  });
+}

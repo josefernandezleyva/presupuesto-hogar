@@ -137,7 +137,7 @@ const hogar = {
       const idx = Array.from({ length: e.n }, (_, i) => i);
       ops.crearHogar({ nombres: idx.map((i) => e['n_' + i]), pcts: idx.map((i) => num(e['p_' + i])) });
       location.hash = '#/inicio';
-      c.avisar('Hogar creado. Define los topes en Más > Presupuesto.');
+      c.avisar('Hogar creado. Define los topes en Hogar y ajustes › Presupuesto.');
     }
   }
 };
@@ -151,7 +151,7 @@ const quien = {
       <section class="card list">
         ${ps.map((p) => fila({ izq: avatar(p, 40), titulo: esc(p.nombre), sub: esc(p.rol), a: 'soy', datos: { id: p.id } })).join('')}
       </section>
-      <p class="muted sm center">¿No estás en la lista? Pide al administrador que te agregue en Más > Personas y sincroniza.</p>
+      <p class="muted sm center">¿No estás en la lista? Pide al administrador que te agregue en Hogar y ajustes › Personas y sincroniza.</p>
       <button class="btn ghost wide" data-a="sync">Sincronizar</button>
     </main>`;
   },

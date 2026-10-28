@@ -2,7 +2,7 @@
 
 import * as L from '../logic.js';
 import { esc, nombreMes, pct, r2, mesActual, fmt0 } from '../util.js';
-import { barraMes, tabbar, chips, dinero0, barra, vacio } from '../ui.js';
+import { tituloGrande, tabbar, chips, dinero0, barra, vacio, icono } from '../ui.js';
 import { barras, linea, barraMeta } from '../charts.js';
 import { puntoCat, nombre } from './comun.js';
 
@@ -23,7 +23,7 @@ export default {
     const pasados = evo.filter((x) => x.presupuesto > 0 && x.total > x.presupuesto + 0.004 && x.mes < mes);
 
     let html = `<main class="pad has-tabs">
-      ${barraMes(mes)}
+      ${tituloGrande({ titulo: 'Análisis', mes, derecha: `<a class="btn-ic round" href="#/reporte" aria-label="Reporte de gastos">${icono('reporte', 21)}</a>` })}
       ${chips('fp', personas, e.fp, { clase: 'scroll', label: 'Ver por' })}
       ${pid ? '<p class="muted xs">Montos de su parte según el reparto de cada gasto; topes según su participación.</p>' : ''}
 

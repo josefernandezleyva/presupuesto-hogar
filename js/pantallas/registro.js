@@ -33,6 +33,9 @@ function iniciarNuevo(c) {
     panel: null
   });
   e.mesInicio = mesDe(e.fecha);
+  // 2.0 · «Registrar otro igual»: copia descripción, monto, moneda, categoría y quién pagó (la fecha es hoy).
+  const base = c.query.copia ? st.fila('Gastos', c.query.copia) : null;
+  if (base) Object.assign(e, { nota: base.nota || '', monto: String(base.monto || ''), moneda: base.moneda || 'PEN', categoria_id: base.categoria_id, pagado_por: base.pagado_por || e.pagado_por, dupOk: false });
   if (e.moneda === 'USD') e.tc = String(L.tipoCambio(c.S, mesDe(e.fecha)) || '');
   cargarPcts(c, L.participacion(c.S, mesDe(e.fecha)));
 }
@@ -439,6 +442,7 @@ const pantalla = {
 
       ${edit && !bloqueado && !cerrado ? `<div class="links">
         ${g?.estado === L.ESTADO.PROG ? '<button type="button" class="link" data-a="confirmar">Confirmar con este monto</button>' : ''}
+        <a class="link" href="#/nuevo?copia=${esc(e.id)}">Registrar otro igual</a>
         <button type="button" class="link bad-t" data-a="anular">Anular gasto</button>
       </div>` : ''}
     </main>
@@ -661,7 +665,7 @@ const pantalla = {
       const terminar = (texto, deshacerId = null) => {
         c.setMes(mesDe(e.fecha));
         c.volver('inicio');
-        c.avisar(texto, '', deshacerId ? { l: 'Deshacer', fn: (c2) => { ops.deshacer(deshacerId); c2.avisar('Registro deshecho'); } } : null);
+        c.avisar(texto, '', deshacerId ? { l: 'Deshacer', fn: (c2) => { ops.deshacer(deshacerId); st.quitarAvisos(deshacerId); c2.avisar('Registro deshecho'); } } : null);
       };
 
       // Un pago único que ahora se repite cada mes o se paga en cuotas.
@@ -678,6 +682,8 @@ const pantalla = {
       const cambiosPlan = cambiosDePlan(e);
       const hacer = (alcance) => {
         const id = ops.guardarGasto(f, { id: e.id || null, alcance });
+        // 2.0: un gasto nuevo avisa a la otra persona (viaja con la sincronización).
+        if (!e.id) { try { st.encolarAvisos(L.avisosDeRegistro(st.foto(), id, c.meta.personaId)); } catch (err) { console.error(err); } }
         if (g?.plan_id && cambiosPlan) ops.actualizarPlan(g.plan_id, cambiosPlan, g.mes, { excluir: Math.abs(monto - num(g.monto)) > 0.004 ? g.id : null });
         // La foto se une al gasto (en cuotas o cada mes, a la primera cuota).
         const gid = !e.id && (e.modalidad === 'Cuotas' || e.modalidad === 'Recurrente') ? L.idGastoDePlan(id, 0) : (e.id || id);

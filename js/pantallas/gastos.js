@@ -1,8 +1,50 @@
 import * as L from '../logic.js';
 import * as ops from '../ops.js';
-import { esc, fechaCorta, r2, num } from '../util.js';
-import { barraMes, tabbar, avatar, chips, segmentado, dinero, vacio, icono } from '../ui.js';
+import { esc, fechaCorta, r2, num, nombreMes } from '../util.js';
+import { tituloGrande, tabbar, avatar, chips, dinero, vacio, icono } from '../ui.js';
 import { puntoCat } from './comun.js';
+
+/** Filtros activos sobre la lista del mes (persona aparte, en los chips). */
+const nFiltros = (e) => [e.ft, e.fc, e.fe].filter(Boolean).length;
+
+function filtrar(c) {
+  const { S, mes, estado: e } = c;
+  let lista = L.gastosMes(S, mes);
+  if (e.fe) lista = lista.filter((g) => g.estado === e.fe);
+  if (e.fc) lista = lista.filter((g) => g.categoria_id === e.fc);
+  if (e.ft) lista = lista.filter((g) => L.tipoGasto(S, g) === e.ft);
+  if (e.fp) lista = lista.filter((g) => L.montoPara(S, g, e.fp) > 0);
+  return lista.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : String(b.creado_en).localeCompare(String(a.creado_en))));
+}
+
+/** La lista: del mes con sus filtros, o los resultados de la búsqueda en todos los meses. */
+function listaHtml(c) {
+  const { S, mes, estado: e } = c;
+  const cerrado = L.mesCerrado(S, mes);
+  const q = String(e.q || '').trim();
+  if (q) {
+    const res = L.buscarGastos(S, q);
+    const porMes = new Map();
+    res.forEach((g) => { if (!porMes.has(g.mes)) porMes.set(g.mes, []); porMes.get(g.mes).push(g); });
+    const total = r2(res.reduce((a, g) => a + num(g.monto_soles), 0));
+    return `<p class="sum-l" role="status">${res.length ? `${res.length} ${res.length === 1 ? 'resultado' : 'resultados'} · <strong class="num">${dinero(total)}</strong>` : 'Sin resultados'} en todos los meses</p>
+      ${[...porMes.entries()].map(([m, gs]) => `<h3 class="dia">${esc(nombreMes(m))}</h3>
+        <div class="card list">${gs.map((g) => item(c, g, L.mesCerrado(S, g.mes), { fecha: true })).join('')}</div>`).join('')}
+      ${res.length ? '' : vacio('Prueba con otra palabra, una categoría o un monto (por ejemplo 85.50).')}`;
+  }
+  const lista = filtrar(c);
+  const total = r2(lista.reduce((a, g) => a + L.montoPara(S, g, e.fp || null), 0));
+  const porDia = new Map();
+  lista.forEach((g) => { if (!porDia.has(g.fecha)) porDia.set(g.fecha, []); porDia.get(g.fecha).push(g); });
+  const anulados = L.gastosMes(S, mes, [L.ESTADO.ANUL]).length;
+  return `<p class="sum-l">${lista.length} ${lista.length === 1 ? 'gasto' : 'gastos'} · <strong class="num">${dinero(total)}</strong>${e.fp ? ' (su parte)' : ''}</p>
+    ${lista.length ? [...porDia.entries()].map(([fecha, gs]) => `
+      <h3 class="dia">${esc(fechaCorta(fecha))}</h3>
+      <div class="card list">
+        ${gs.map((g) => item(c, g, cerrado)).join('')}
+      </div>`).join('') : vacio(nFiltros(e) || e.fp ? 'No hay gastos con estos filtros.' : 'Todavía no hay gastos este mes.', nFiltros(e) || e.fp ? '<button class="btn sec" data-a="limpiar">Quitar filtros</button>' : '<a class="btn pri" href="#/nuevo">Registrar gasto</a>')}
+    ${anulados ? `<p class="muted xs center">${anulados} ${anulados === 1 ? 'gasto anulado no se muestra' : 'gastos anulados no se muestran'}.</p>` : ''}`;
+}
 
 export default {
   iniciar(c) {
@@ -10,56 +52,57 @@ export default {
     c.estado.ft = '';
     c.estado.fc = c.query.cat || '';
     c.estado.fe = c.query.estado || '';
+    c.estado.q = '';
   },
   vista(c) {
     const { S, mes, estado: e } = c;
     const cerrado = L.mesCerrado(S, mes);
-    let lista = L.gastosMes(S, mes);
-    if (e.fe) lista = lista.filter((g) => g.estado === e.fe);
-    if (e.fc) lista = lista.filter((g) => g.categoria_id === e.fc);
-    if (e.ft) lista = lista.filter((g) => L.tipoGasto(S, g) === e.ft);
-    if (e.fp) lista = lista.filter((g) => L.montoPara(S, g, e.fp) > 0);
-    lista.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : String(b.creado_en).localeCompare(String(a.creado_en))));
-    const total = r2(lista.reduce((a, g) => a + L.montoPara(S, g, e.fp || null), 0));
-    const porDia = new Map();
-    lista.forEach((g) => { if (!porDia.has(g.fecha)) porDia.set(g.fecha, []); porDia.get(g.fecha).push(g); });
-    const anulados = L.gastosMes(S, mes, [L.ESTADO.ANUL]).length;
-
     const personas = [{ v: '', l: 'Todos' }, ...L.personas(S).map((p) => ({ v: p.id, l: p.alias || p.nombre }))];
-    const cats = L.categorias(S, { todas: true });
-
-    return `<main class="pad has-tabs">
-      ${barraMes(mes, { cerrado, derecha: `<a class="btn-ic round" href="#/reporte" aria-label="Reporte de gastos">${icono('reporte', 22)}</a>` })}
-      <div class="filtros">
-        ${chips('fp', personas, e.fp, { clase: 'scroll', label: 'Persona' })}
-        <div class="split gap">
-          ${segmentado('ft', [{ v: '', l: 'Todos' }, { v: 'Fijo', l: 'Fijos' }, { v: 'Variable', l: 'Variables' }], e.ft, 'Tipo')}
-        </div>
-        <div class="split gap">
-          <label class="sr" for="fc">Categoría</label>
-          <select id="fc" class="select" data-f="fc" data-r>
-            <option value="">Categoría</option>
-            ${cats.map((x) => `<option value="${esc(x.id)}"${x.id === e.fc ? ' selected' : ''}>${esc(x.nombre)}</option>`).join('')}
-          </select>
-          <select class="select" data-f="fe" data-r aria-label="Estado">
-            <option value="">Estado</option>
-            <option value="Confirmado"${e.fe === 'Confirmado' ? ' selected' : ''}>Confirmados</option>
-            <option value="Programado"${e.fe === 'Programado' ? ' selected' : ''}>Programados</option>
-          </select>
-        </div>
+    const n = nFiltros(e);
+    const buscando = !!String(e.q || '').trim();
+    return `<main class="pad has-tabs${buscando ? ' buscando' : ''}">
+      ${tituloGrande({ titulo: 'Gastos', mes, cerrado, derecha: `<a class="btn-ic round" href="#/reporte" aria-label="Reporte de gastos">${icono('reporte', 21)}</a>` })}
+      <div class="buscar" role="search">
+        ${icono('buscar', 18)}
+        <label class="sr" for="q">Buscar gastos</label>
+        <input id="q" type="search" class="buscar-i" data-f="q" data-keep placeholder="Buscar en todos los meses" autocomplete="off" enterkeyhint="search" value="${esc(e.q || '')}">
+        <button type="button" class="buscar-x" data-a="borrar-q" aria-label="Borrar búsqueda">×</button>
       </div>
-      <p class="sum-l">${lista.length} ${lista.length === 1 ? 'gasto' : 'gastos'} · <strong>${dinero(total)}</strong>${e.fp ? ' (su parte)' : ''}</p>
-
-      ${lista.length ? [...porDia.entries()].map(([fecha, gs]) => `
-        <h3 class="dia">${esc(fechaCorta(fecha))}</h3>
-        <div class="card list">
-          ${gs.map((g) => item(c, g, cerrado)).join('')}
-        </div>`).join('') : vacio('No hay gastos con estos filtros.', `<a class="btn pri" href="#/nuevo">Registrar gasto</a>`)}
-      ${anulados ? `<p class="muted xs center">${anulados} ${anulados === 1 ? 'gasto anulado no se muestra' : 'gastos anulados no se muestran'}.</p>` : ''}
+      ${`<div class="filtros-fila">
+        ${chips('fp', personas, e.fp, { clase: 'scroll', label: 'Persona' })}
+        <button type="button" class="chip filtro-b${n ? ' on' : ''}" data-a="filtros" aria-label="Filtros${n ? `, ${n} activos` : ''}">${icono('filtro', 16)} Filtros${n ? ` · ${n}` : ''}</button>
+      </div>`}
+      <div id="lista">${listaHtml(c)}</div>
     </main>${tabbar('gastos')}`;
+  },
+  alEscribir(c, f) {
+    if (f !== 'q') return;
+    const box = document.getElementById('lista');
+    if (!box) return;
+    // Al buscar se ocultan el mes y los filtros (la búsqueda es en todos los meses), sin redibujar el campo.
+    box.closest('main')?.classList.toggle('buscando', !!String(c.estado.q || '').trim());
+    box.innerHTML = listaHtml(c);
+    deslizar(box);
   },
   montar(raiz) { deslizar(raiz); },
   acciones: {
+    filtros(c) {
+      const { S, estado: e } = c;
+      const cats = L.categorias(S, { todas: true });
+      const op = (v, l, sel) => `<option value="${esc(v)}"${String(v) === String(sel || '') ? ' selected' : ''}>${esc(l)}</option>`;
+      c.preguntar({
+        titulo: 'Filtros',
+        html: `<label class="lbl" for="f-t">Tipo</label><select id="f-t" name="ft" class="select">${op('', 'Todos', e.ft)}${op('Fijo', 'Fijos', e.ft)}${op('Variable', 'Variables', e.ft)}</select>
+          <label class="lbl" for="f-c">Categoría</label><select id="f-c" name="fc" class="select">${op('', 'Todas', e.fc)}${L.categoriasPorGrupo(S, { todas: true }).map(({ grupo, cats: cs }) => `<optgroup label="${esc(grupo.nombre)}">${cs.map((x) => op(x.id, x.nombre, e.fc)).join('')}</optgroup>`).join('') || cats.map((x) => op(x.id, x.nombre, e.fc)).join('')}</select>
+          <label class="lbl" for="f-e">Estado</label><select id="f-e" name="fe" class="select">${op('', 'Todos', e.fe)}${op('Confirmado', 'Confirmados', e.fe)}${op('Programado', 'Programados', e.fe)}</select>`,
+        botones: [
+          { l: 'Aplicar', estilo: 'pri', fn: (c2, v) => { Object.assign(c2.estado, { ft: v.ft, fc: v.fc, fe: v.fe }); c2.render(); } },
+          { l: 'Quitar filtros', estilo: 'sec', fn: (c2) => { Object.assign(c2.estado, { ft: '', fc: '', fe: '' }); c2.render(); } }
+        ]
+      });
+    },
+    limpiar(c) { Object.assign(c.estado, { ft: '', fc: '', fe: '', fp: '' }); c.render(); },
+    'borrar-q'(c) { c.estado.q = ''; c.render(); },
     confirmar(c, d) {
       ops.confirmarGasto(d.id);
       c.avisar('Gasto confirmado');
@@ -117,13 +160,13 @@ function deslizar(raiz) {
   });
 }
 
-function item(c, g, cerrado) {
+function item(c, g, cerrado, { fecha = false } = {}) {
   const { S } = c;
   const cat = L.categoria(S, g.categoria_id);
   const plan = g.plan_id ? L.idx(S).plan.get(g.plan_id) : null;
   const sub = [
     plan ? (plan.modalidad === 'Cuotas' ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : 'Recurrente') : '',
-    L.tipoGasto(S, g),
+    fecha ? esc(fechaCorta(g.fecha)) : L.tipoGasto(S, g),
     esc(L.persona(S, g.pagado_por)?.nombre || '')
   ].filter(Boolean).join(' · ');
   const prog = g.estado === L.ESTADO.PROG;
@@ -131,11 +174,11 @@ function item(c, g, cerrado) {
   const fila = `<div class="gitem${cerrado ? '' : ' sw-cont'}">
     <a class="gitem-m" href="#/gasto/${esc(g.id)}">
       ${avatar(L.persona(S, g.pagado_por), 32)}
-      <span class="row-m"><span class="row-t">${puntoCat(cat)} ${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${prog ? ' <span class="badge soft">Programado</span>' : ''}</span>
+      <span class="row-m"><span class="row-t">${puntoCat(cat)}&nbsp;${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${prog ? ' <span class="badge soft">Programado</span>' : ''}</span>
       <span class="row-s">${g.nota ? esc(cat?.nombre || '') + ' · ' : ''}${sub}</span></span>
-      <span class="amt">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}</span>
+      <span class="amt num">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}</span>
     </a>
-    ${prog && !cerrado ? `<button class="btn mini" data-a="confirmar" data-id="${esc(g.id)}">Confirmar</button>` : ''}
+    ${prog && !cerrado && !fecha ? `<button class="btn mini" data-a="confirmar" data-id="${esc(g.id)}">Confirmar</button>` : ''}
   </div>`;
   if (cerrado) return fila;
   return `<div class="swipe">

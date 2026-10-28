@@ -53,7 +53,7 @@ export function tarjetaPropuesta(c, mes) {
   if (!prop.pcts) {
     if (!prop.faltan.length) return '';
     return `<section class="card stack"><h2 class="h2">Participación según sueldos</h2>
-      <p class="sm muted">Para proponerla, falta el sueldo de ${prop.faltan.map((p) => esc(p.nombre)).join(' y ')} en Más › Ingresos.</p></section>`;
+      <p class="sm muted">Para proponerla, falta el sueldo de ${prop.faltan.map((p) => esc(p.nombre)).join(' y ')} en Hogar y ajustes › Ingresos.</p></section>`;
   }
   const igual = L.mismosPcts(prop.pcts, actual);
   return `<section class="card stack prop-part">
@@ -64,7 +64,7 @@ export function tarjetaPropuesta(c, mes) {
     <p class="xs muted">Cada uno aporta en proporción a lo que gana: ${ps.map((p) => `${esc(p.alias || p.nombre)} ${esc(fmt(L.ingresoVigente(S, p.id, mes)?.soles || 0))}`).join(' · ')}.</p>
     ${igual ? `<p class="sm ok-t">Coincide con la participación de ${esc(nombreMes(mes).toLowerCase())}.</p>`
       : `<p class="sm">La participación vigente es ${ps.map((p) => pctTxt(actual[p.id] || 0)).join(' / ')}.</p>
-        ${admin ? `<button type="button" class="btn pri" data-a="usar-propuesta" data-m="${esc(mes)}">Usar desde ${esc(nombreMes(mes).toLowerCase())}</button>` : '<p class="xs muted">El administrador puede aplicarla en Más › Personas y participación.</p>'}`}
+        ${admin ? `<button type="button" class="btn pri" data-a="usar-propuesta" data-m="${esc(mes)}">Usar desde ${esc(nombreMes(mes).toLowerCase())}</button>` : '<p class="xs muted">El administrador puede aplicarla en Hogar y ajustes › Personas y participación.</p>'}`}
   </section>`;
 }
 

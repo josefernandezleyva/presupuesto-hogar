@@ -169,6 +169,23 @@ export function lote(fn) {
 export const guardarUno = (tabla, row, o) => guardar([[tabla, row]], o);
 export const eliminar = (tabla, id) => guardar([[tabla, { id, eliminado: 1 }]]);
 
+/*
+ * 2.0 · Avisos push por enviar. Los arma el celular que registra; viajan con la próxima sincronización
+ * (junto con el gasto) y el Code.gs los cifra y los manda a los iPhone de la otra persona.
+ * Se guardan en localStorage como la cola de cambios: sin conexión esperan, y vencen a los 3 días.
+ */
+const VENCE_AVISO = 3 * 24 * 3600 * 1000;
+export function encolarAvisos(avisos) {
+  if (!avisos?.length) return;
+  const cola = leer('avisos', []).filter((a) => Date.now() - (a.t || 0) < VENCE_AVISO);
+  avisos.forEach((a) => cola.push({ ...a, t: Date.now() }));
+  escribir('avisos', cola.slice(-50));
+  programarSync();
+}
+/** Quita los avisos de un registro deshecho antes de que salgan. */
+export function quitarAvisos(tag) { escribir('avisos', leer('avisos', []).filter((a) => a.tag !== tag)); }
+export const avisosPendientes = () => leer('avisos', []).length;
+
 export function pendientes() {
   return TABLAS.reduce((a, t) => a + Object.keys(outbox[t]).length, 0);
 }
@@ -187,15 +204,22 @@ export function sincronizar() {
     estadoSync.corriendo = true; avisar();
     const enviados = {};
     TABLAS.forEach((t) => { enviados[t] = Object.values(outbox[t]); });
+    const avisos = leer('avisos', []).filter((a) => Date.now() - (a.t || 0) < VENCE_AVISO);
     try {
       const t0 = Date.now();
-      const res = await llamar(meta, { action: 'sync', since: marca(), changes: enviados });
+      const res = await llamar(meta, { action: 'sync', since: marca(), changes: enviados, ...(avisos.length ? { avisos: avisos.map(({ t, ...a }) => a) } : {}) });
       if (!res || !res.ok) throw new Error(res?.error || 'respuesta_invalida');
       if (res.serverTime) meta.desfase = res.serverTime - Math.round((t0 + Date.now()) / 2);
       let rechazados = 0;
       // Versión del Code.gs de la hoja (las anteriores a la 4 no la informan al sincronizar).
       meta.schemaServidor = Number(res.schema) || 3;
       meta.codigoServidor = res.codigo ? String(res.codigo) : '';
+      // Los avisos salieron con este lote (o el Code.gs no los conoce): se quitan de la cola.
+      if (avisos.length) {
+        const ids = new Set(avisos.map((a) => a.t + '|' + a.para + '|' + a.tag));
+        escribir('avisos', leer('avisos', []).filter((a) => !ids.has(a.t + '|' + a.para + '|' + a.tag)));
+        estadoSync.avisos = res.avisos || { sinServidor: true };
+      }
       TABLAS.forEach((t) => {
         // Una pestaña que la hoja todavía no tiene (Code.gs anterior): sus cambios esperan en la cola.
         if (res.accepted && !(t in res.accepted)) return;

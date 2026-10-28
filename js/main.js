@@ -19,9 +19,13 @@ import maestros from './pantallas/maestros.js';
 import plan from './pantallas/plan.js';
 import inicioSesion from './pantallas/conectar.js';
 import reporte from './pantallas/reporte.js';
+import novedades from './pantallas/novedades.js';
 import { procesarCola } from './evidencia.js';
+import * as avisos from './avisos.js';
 
-const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, cierre, analisis, reporte, ...mas, ...maestros, ...plan, ...inicioSesion };
+const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, cierre, analisis, reporte, ...mas, ...maestros, ...plan, ...inicioSesion, ...novedades };
+// Pestañas de la barra inferior (2.0): entre ellas la transición es un fundido; el resto entra deslizando.
+const PESTANAS = new Set(['inicio', 'gastos', 'cierre', 'analisis']);
 const SIN_SESION = new Set(['conectar', 'hogar', 'quien']);
 
 const app = {
@@ -44,7 +48,9 @@ function ctx() {
     estado: app.estados[app.ruta] || (app.estados[app.ruta] = {}),
     sync: st.estadoSync,
     ir, render, avisar, anunciar, preguntar, volver, sincronizar, entrar,
-    setMes: (m) => { app.mes = m; }
+    setMes: (m) => { app.mes = m; },
+    setMeta: (patch) => st.setMeta(patch),
+    privado: document.documentElement.dataset.privado === '1'
   };
 }
 
@@ -55,6 +61,7 @@ export function ir(ruta) {
 }
 function volver(defecto = 'inicio') {
   const prev = app.historial[app.historial.length - 2];
+  app.volviendo = true;
   if (prev) history.back(); else ir(defecto);
 }
 function avisar(texto, tipo = '', accion = null) {
@@ -110,8 +117,22 @@ function puerta() {
   return null;
 }
 
+/** Transición entre pantallas (View Transitions de Safari 18): fundido entre pestañas, deslizar al entrar o volver. */
+function conTransicion(fn) {
+  const quieto = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (!document.startViewTransition || quieto || !render.listo || app.hoja) { fn(); return; }
+  try { document.startViewTransition(fn); } catch { fn(); }
+}
+
 function entrar() {
+  const antes = app.ruta;
   leerHash();
+  document.documentElement.dataset.nav = PESTANAS.has(antes) && PESTANAS.has(app.ruta) ? 'tab' : app.volviendo ? 'atras' : 'adelante';
+  app.volviendo = false;
+  conTransicion(entrarAhora);
+}
+
+function entrarAhora() {
   const destino = puerta();
   if (destino && !SIN_SESION.has(app.ruta)) { app.ruta = destino; app.param = ''; }
   if (!destino && SIN_SESION.has(app.ruta) && app.ruta !== 'conectar') { app.ruta = 'inicio'; }
@@ -122,7 +143,9 @@ function entrar() {
   const p = PANTALLAS[app.ruta];
   try { p.iniciar?.(ctx()); } catch (e) { console.error(e); }
   render();
+  render.listo = true;
   window.scrollTo(0, 0);
+  document.body.classList.remove('desplazado');
 }
 
 export function render() {
@@ -161,7 +184,11 @@ export function render() {
   }
   if (foco) {
     const el = raiz.querySelector(`[data-f="${CSS.escape(foco)}"]`);
-    if (el && el !== document.activeElement && el.dataset.keep !== undefined) el.focus();
+    if (el && el !== document.activeElement && el.dataset.keep !== undefined) {
+      el.focus();
+      // El cursor vuelve al final de lo escrito (no al principio).
+      try { if (typeof el.value === 'string' && el.setSelectionRange && el.type !== 'number') el.setSelectionRange(el.value.length, el.value.length); } catch { /* algunos tipos no lo permiten */ }
+    }
   }
   aplicarSquircle(raiz);
   p.montar?.(raiz, c);
@@ -182,6 +209,13 @@ const GLOBALES = {
   toggle: (c, d) => { c.estado[d.k] = !c.estado[d.k]; render(); },
   mes: (c, d) => { app.mes = sumarMeses(app.mes, Number(d.d)); PANTALLAS[app.ruta].alCambiarMes?.(ctx()); render(); },
   'mes-hoy': () => { app.mes = mesActual(); render(); },
+  privado: () => {
+    const on = document.documentElement.dataset.privado !== '1';
+    document.documentElement.dataset.privado = on ? '1' : '0';
+    try { localStorage.setItem('pp-privado', on ? '1' : '0'); } catch { /* sin almacenamiento */ }
+    render();
+    anunciar(on ? 'Montos ocultos' : 'Montos visibles');
+  },
   sync: () => sincronizar(true),
   'cerrar-hoja': () => { app.hoja = null; render(); },
   'toast-accion': () => {
@@ -246,7 +280,16 @@ raiz.addEventListener('submit', (ev) => {
 
 export async function sincronizar(manual = false) {
   try {
+    const yo = st.getMeta().personaId;
+    const antes = new Set(L.novedades(st.foto(), yo).map((n) => n.gasto.id));
+    const habiaSync = !!st.getMeta().ultimoSync;
     await st.sincronizar();
+    // 2.0: con la app abierta, un gasto nuevo de la otra persona se anuncia al llegar.
+    const llegaron = L.novedades(st.foto(), yo).filter((n) => !antes.has(n.gasto.id) && Date.now() - Date.parse(n.cuando) < 6 * 3600e3);
+    if (llegaron.length && habiaSync && !manual) {
+      const n = llegaron[0], p = L.persona(st.foto(), n.autor);
+      avisar(llegaron.length === 1 ? `${p?.alias || p?.nombre || 'Alguien'} registró ${n.gasto.nota || 'un gasto'}` : `${llegaron.length} gastos nuevos de la otra persona`, '', { l: 'Ver', fn: (c) => c.ir('novedades') });
+    }
     procesarCola().catch(() => {});
     const rech = st.estadoSync.rechazados;
     const nuevos = ops.asegurarRecurrentes() + ops.repararGenerados() + ops.asegurarGrupos();
@@ -278,16 +321,86 @@ st.suscribir(() => {
   });
 });
 window.addEventListener('hashchange', entrar);
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { window.ppTextoSistema?.(); sincronizar(false); } });
+window.addEventListener('popstate', () => { app.volviendo = true; });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  window.ppTextoSistema?.();
+  avisos.limpiarGlobo();
+  sincronizar(false);
+});
+
+/* -------------------------------------------------------- 2.0 · Gestos --- */
+
+// Título grande que se vuelve barra compacta de cristal al desplazarse.
+window.addEventListener('scroll', () => { document.body.classList.toggle('desplazado', window.scrollY > 36); }, { passive: true });
+
+// Tirar hacia abajo para sincronizar, en las pestañas (como en las apps de iOS).
+(() => {
+  let y0 = null, dy = 0;
+  const ind = () => document.getElementById('ptr') || Object.assign(document.body.appendChild(document.createElement('div')), { id: 'ptr', innerHTML: '<span class="ptr-c"></span>' });
+  window.addEventListener('touchstart', (e) => {
+    y0 = window.scrollY <= 0 && PESTANAS.has(app.ruta) && !app.hoja && e.touches.length === 1 ? e.touches[0].clientY : null; dy = 0;
+  }, { passive: true });
+  window.addEventListener('touchmove', (e) => {
+    if (y0 === null) return;
+    dy = Math.max(0, e.touches[0].clientY - y0);
+    const el = ind();
+    el.style.setProperty('--ptr', Math.min(1, dy / 80));
+    el.classList.toggle('listo', dy > 80);
+    el.classList.toggle('ver', dy > 8);
+  }, { passive: true });
+  window.addEventListener('touchend', () => {
+    if (y0 === null) return;
+    const el = ind();
+    y0 = null;
+    if (dy > 80) {
+      el.classList.add('girando');
+      sincronizar(true).finally(() => { el.classList.remove('girando', 'ver', 'listo'); });
+    } else el.classList.remove('ver', 'listo');
+  });
+})();
+
+// Mensajes del service worker: llegó un aviso (se sincroniza) o se tocó uno (se abre su pantalla).
+navigator.serviceWorker?.addEventListener('message', (e) => {
+  if (e.data?.tipo === 'aviso') sincronizar(false);
+  if (e.data?.tipo === 'abrir' && e.data.url) { location.hash = e.data.url.replace(/^#/, ''); avisos.limpiarGlobo(); }
+});
+
+try { document.documentElement.dataset.privado = localStorage.getItem('pp-privado') === '1' ? '1' : '0'; } catch { /* nada */ }
 window.addEventListener('online', () => sincronizar(false));
 // La copia de la hoja se lee de IndexedDB (o se mueve ahí la primera vez) antes de mostrar la app.
 st.cargarCopia().catch(() => 'local').then(async (r) => {
   // Si el navegador borró la copia, se baja de la hoja antes de entrar (para no pedir crear un hogar nuevo).
   if (r === 'recuperar') { try { await st.sincronizar(); } catch { /* se reintenta luego */ } }
 }).finally(() => {
+  // 2.0: las novedades empiezan a contarse desde la primera vez que se abre esta versión.
+  if (!st.getMeta().novedadesVistas) st.setMeta({ novedadesVistas: new Date().toISOString() });
   entrar();
-  sincronizar(false);
+  sincronizar(false).then(() => avisos.revisar().catch(() => {}));
+  avisos.limpiarGlobo();
+  mostrarNovedadesVersion();
 });
+
+/** Una sola vez: qué cambió en la 2.0 y dónde quedó cada cosa. */
+function mostrarNovedadesVersion() {
+  const meta = st.getMeta();
+  if (meta.visto20) return;
+  st.setMeta({ visto20: true });
+  if (puerta() || (!meta.ultimoSync && !meta.demo)) return; // instalación nueva: no hay nada que comparar
+  preguntar({
+    titulo: 'Novedades de la versión 2.0',
+    html: `<ul class="nuevo20">
+      <li><b>Cuentas</b> es una pestaña: saldo entre ustedes, pagos y cierre del mes.</li>
+      <li><b>Avisos</b>: activa en Ajustes que te avise cada gasto que registre la otra persona.</li>
+      <li><b>Novedades</b>: la campana de Inicio muestra lo que registró la otra persona.</li>
+      <li><b>Hogar y ajustes</b>: toca tu foto, arriba a la derecha de Inicio.</li>
+      <li><b>Buscar</b> gastos en todos los meses, desde Gastos.</li>
+      <li>Tira hacia abajo para sincronizar, y toca el ojo para ocultar los montos.</li>
+    </ul>`,
+    botones: [{ l: 'Entendido', estilo: 'pri' }],
+    cancelar: 'Cerrar'
+  });
+}
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   navigator.serviceWorker.register('./sw.js').catch(() => {});

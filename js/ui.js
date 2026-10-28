@@ -28,6 +28,14 @@ export const ICON = {
   bajar: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   reporte: '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h7M9 8h3"/>',
   basura: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/>',
+  campana: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  ojo: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  ojoNo: '<path d="M4 4l16 16M9.9 5.8A9.6 9.6 0 0 1 12 5.5C18 5.5 21.5 12 21.5 12a17 17 0 0 1-3 3.8M6.2 7.2A16.6 16.6 0 0 0 2.5 12S6 18.5 12 18.5a9 9 0 0 0 4-.9"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+  cuentas: '<path d="M7 7h12l-3-3M17 17H5l3 3"/><circle cx="12" cy="12" r="0.6"/>',
+  buscar: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  filtro: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  engranaje: '<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  reloj: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   copiar: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>'
 };
 
@@ -52,12 +60,55 @@ export function barraMes(mes, { derecha = '', cerrado = false } = {}) {
   </div>`;
 }
 
+/** Barra de pestañas (2.0): Inicio, Gastos, Cuentas y Análisis; el + registra. Ajustes, desde el avatar de Inicio. */
 export function tabbar(activa) {
   const t = (ruta, ic, label) => `<a href="#/${ruta}" class="tab${activa === ruta ? ' on' : ''}"${activa === ruta ? ' aria-current="page"' : ''}>${icono(ic, 24)}<span>${label}</span></a>`;
   return `<nav class="tabbar" aria-label="Secciones">
-    <div class="tabgroup">${t('inicio', 'inicio', 'Inicio')}${t('gastos', 'lista', 'Gastos')}${t('analisis', 'grafico', 'Análisis')}${t('mas', 'puntos', 'Más')}</div>
+    <div class="tabgroup">${t('inicio', 'inicio', 'Inicio')}${t('gastos', 'lista', 'Gastos')}${t('cierre', 'cuentas', 'Cuentas')}${t('analisis', 'grafico', 'Análisis')}</div>
     <a href="#/nuevo" class="tab-add" aria-label="Registrar gasto">${icono('mas', 28)}</a>
   </nav>`;
+}
+
+/**
+ * Título grande de una pestaña, como en iOS: el nombre arriba y, al bajar, una barra compacta de cristal.
+ * `mes` agrega el selector de mes bajo el título.
+ */
+export function tituloGrande({ titulo, sub = '', derecha = '', mes = null, cerrado = false }) {
+  return `<header class="lt">
+    <div class="lt-bar"><span class="lt-mini" aria-hidden="true">${esc(titulo)}${mes ? ' · ' + esc(nombreMes(mes, { corto: true })) : ''}</span><span class="lt-acc">${derecha}</span></div>
+    <div class="lt-head">${sub ? `<div class="lt-sub">${sub}</div>` : ''}<h1 class="lt-t">${esc(titulo)}</h1></div>
+    ${mes ? `<div class="lt-mes" role="group" aria-label="Mes">
+      <button class="btn-ic" data-a="mes" data-d="-1" aria-label="Mes anterior">${icono('atras', 22)}</button>
+      <span class="lt-mes-t">${esc(nombreMes(mes))}${cerrado ? ' <span class="badge">Cerrado</span>' : ''}</span>
+      <button class="btn-ic" data-a="mes" data-d="1" aria-label="Mes siguiente">${icono('adelante', 22)}</button>
+    </div>` : ''}
+  </header>`;
+}
+
+/** Anillo de progreso (SVG): gastado, comprometido y el resto, sobre 100 %. */
+export function anillo(pctGastado, pctComprometido = 0, { size = 112, estado = 'ok', texto = '' } = {}) {
+  const r = 46, c = 2 * Math.PI * r;
+  const g = Math.max(0, Math.min(100, pctGastado || 0)), k = Math.max(0, Math.min(100 - g, pctComprometido || 0));
+  return `<svg class="anillo ${estado}" width="${size}" height="${size}" viewBox="0 0 112 112" role="img" aria-label="${Math.round(pctGastado || 0)} % del presupuesto usado">
+    <circle cx="56" cy="56" r="${r}" class="an-fondo"/>
+    ${k > 0 ? `<circle cx="56" cy="56" r="${r}" class="an-comp" stroke-dasharray="${(g + k) / 100 * c} ${c}" transform="rotate(-90 56 56)"/>` : ''}
+    <circle cx="56" cy="56" r="${r}" class="an-gas" stroke-dasharray="${g / 100 * c} ${c}" transform="rotate(-90 56 56)"/>
+    <text x="56" y="54" class="an-n">${Math.round(pctGastado || 0)}%</text><text x="56" y="72" class="an-l">${esc(texto)}</text>
+  </svg>`;
+}
+
+/** Hace cuánto: «hace 5 min», «hoy 10:30», «ayer», «12 oct». */
+export function haceCuanto(iso, ahora = new Date()) {
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const min = Math.round((ahora - d) / 60000);
+  if (min < 1) return 'ahora';
+  if (min < 60) return `hace ${min} min`;
+  const hoyD = ahora.toDateString() === d.toDateString();
+  if (hoyD) return 'hoy ' + d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+  const ayer = new Date(ahora); ayer.setDate(ayer.getDate() - 1);
+  if (ayer.toDateString() === d.toDateString()) return 'ayer';
+  return d.toLocaleDateString('es-PE', { day: 'numeric', month: 'short' });
 }
 
 export function avatar(p, size = 32) {
