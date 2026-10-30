@@ -9,7 +9,7 @@ import { lineaSync, tarjetaPropuesta, usarPropuesta } from './comun.js';
 import { borrarDemo } from '../demo.js';
 import { pendientes as fotosPendientes, procesarCola, estadoCola } from '../evidencia.js';
 import { mensajeError } from '../api.js';
-import { ACENTOS, MODOS, ESTILOS, MATERIALES, ESQUINAS, ICONOS, leerTema, guardarTema, leerIcono, guardarIcono } from '../tema.js';
+import { ACENTOS, PERSONAL, colorDe, MODOS, ESTILOS, MATERIALES, ESQUINAS, ICONOS, leerTema, guardarTema, leerIcono, guardarIcono } from '../tema.js';
 
 const flecha = icono('adelante', 18);
 
@@ -43,10 +43,10 @@ const menu = {
       </section>
       <h3 class="dia">App</h3>
       <section class="card list">
-        ${fila({ izq: icono('paleta', 22), titulo: 'Apariencia', sub: `${esc(ESTILOS.find((m) => m.v === leerTema().estilo)?.l || '')} · ${esc(MODOS.find((m) => m.v === leerTema().modo).l)} · ${esc(ACENTOS.find((a) => a.v === leerTema().acento)?.l || 'Verde')}`, der: flecha, href: '#/apariencia' })}
+        ${fila({ izq: icono('paleta', 22), titulo: 'Apariencia', sub: `${esc(ESTILOS.find((m) => m.v === leerTema().estilo)?.l || '')} · ${esc(MODOS.find((m) => m.v === leerTema().modo).l)} · ${esc(leerTema().acento === PERSONAL ? 'Color propio' : ACENTOS.find((a) => a.v === leerTema().acento)?.l || 'Verde')}`, der: flecha, href: '#/apariencia' })}
         ${fila({ titulo: 'Ajustes y sincronización', sub: lineaSync(c).replace(/<[^>]+>/g, ''), der: flecha, href: '#/ajustes' })}
       </section>
-      <p class="xs muted center">Presupuesto del Hogar · versión 2.0</p>
+      <p class="xs muted center">Presupuesto del Hogar · versión 2.1</p>
     </main>`;
   }
 };
@@ -223,7 +223,7 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 2.0${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
+      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 2.1${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
       <p class="xs muted center">Copia en este celular: ${st.infoCopia().gastos} ${st.infoCopia().gastos === 1 ? 'gasto' : 'gastos'}, en ${esc(st.infoCopia().donde)}</p>
     </main>`;
   },
@@ -279,6 +279,12 @@ function enlaceIcono(meta, icono) {
 }
 
 const apariencia = {
+  // Color propio: se ve en vivo mientras se elige y la pantalla se redibuja al terminar.
+  alEscribir(c, f, el, ev) {
+    if (f !== 'acentoColor' || !/^#[0-9a-f]{6}$/i.test(el.value)) return;
+    guardarTema({ acento: PERSONAL, acentoColor: el.value.toUpperCase() });
+    if (ev?.type === 'change') c.render();
+  },
   vista(c) {
     const t = leerTema();
     const glass = t.estilo === 'glass';
@@ -317,9 +323,12 @@ const apariencia = {
       <h3 class="dia">Modo</h3>
       ${segmentadoTema('modo', MODOS, t.modo, 'Modo')}
       <h3 class="dia">Color</h3>
-      <div class="temas" role="group" aria-label="Color de la app">
-        ${ACENTOS.map((a) => `<button type="button" class="tema${a.v === t.acento ? ' on' : ''}" data-a="acento" data-v="${a.v}" aria-pressed="${a.v === t.acento}"><span class="tema-dot" style="background:${a.c}"></span>${esc(a.l)}</button>`).join('')}
+      <div class="colores" role="group" aria-label="Color de la app">
+        ${ACENTOS.map((a) => `<button type="button" class="color-op${a.v === t.acento ? ' on' : ''}" data-a="acento" data-v="${a.v}" aria-pressed="${a.v === t.acento}"><span class="color-dot" style="background:${a.c}">${a.v === t.acento ? icono('check', 18) : ''}</span><span class="color-l">${esc(a.l)}</span></button>`).join('')}
+        <label class="color-op${t.acento === PERSONAL ? ' on' : ''}"><span class="color-dot propio" style="${t.acento === PERSONAL ? `background:${esc(colorDe(t))}` : ''}">${t.acento === PERSONAL ? icono('check', 18) : icono('mas', 18)}</span><span class="color-l">Propio</span>
+          <input type="color" class="sr" data-f="acentoColor" value="${esc(colorDe({ ...t, acento: PERSONAL }))}" aria-label="Elegir un color propio"></label>
       </div>
+      <p class="xs muted">${ACENTOS.length} colores y uno propio. Los tonos claros y oscuros se ajustan para que el texto se lea bien.</p>
       <h3 class="dia">Vista previa</h3>
       <section class="card stack">
         <div class="split sm"><span>Comida</span><span class="muted">S/ 865 de S/ 1,400</span></div>

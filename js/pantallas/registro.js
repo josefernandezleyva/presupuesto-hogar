@@ -28,7 +28,8 @@ function iniciarNuevo(c) {
   Object.assign(e, {
     monto: '', moneda: 'PEN', tc: '', tcManual: false, falta: null, dupOk: false,
     categoria_id: c.query.cat || '', pagado_por: c.meta.personaId,
-    fecha: fechaEnMes(c.mes, hoy()), nota: '', tipo: '',
+    // 2.1: un gasto nuevo siempre empieza con la fecha de hoy (aunque se esté mirando otro mes); se cambia en «Fecha».
+    fecha: /^\d{4}-\d{2}-\d{2}$/.test(c.query.fecha || '') ? c.query.fecha : hoy(), nota: '', tipo: '',
     rep: 'hogar', modalidad: 'Unico', nroCuotas: 3, mesInicio: '', montoCuota: '', sinFin: '1', durN: '12', dobles: [],
     panel: null
   });
@@ -368,7 +369,7 @@ const pantalla = {
         <div class="mes-reg-t"><span class="lbl">Mes del gasto</span><strong>${esc(nombreMes(mes))}</strong>${cerrado ? ' <span class="badge">Cerrado</span>' : ''}</div>
         <button type="button" class="btn-ic" data-a="mesReg" data-d="1" aria-label="Mes siguiente" ${dis}>${icono('adelante', 22)}</button>
       </div>
-      ${!edit && mes !== mesActual() ? `<button type="button" class="link center-self" data-a="mesHoy">Volver a ${esc(nombreMes(mesActual(), { anio: false }).toLowerCase())}</button>` : ''}
+      ${!edit && e.fecha !== hoy() ? `<button type="button" class="link center-self" data-a="mesHoy">Usar la fecha de hoy</button>` : ''}
       ${cerrado && !bloqueado ? alerta('warn', `${nombreMes(mes)} está cerrado`, edit ? 'No se puede cambiar. El administrador puede reabrirlo en Cierre de mes.' : 'Cambia la fecha a un mes abierto o pide al administrador que lo reabra.') : ''}
       ${bloqueado ? alerta('warn', anulado ? 'Este gasto está anulado' : `${nombreMes(g.mes)} está cerrado`, anulado ? 'No cuenta en los totales.' : 'Solo se puede ver.') : ''}
       ${plan ? `<p class="muted sm">${plan.modalidad === 'Cuotas' ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : 'Gasto mensual'} · ${esc(plan.descripcion)} · ${esc(g.estado)}</p>` : ''}
@@ -407,8 +408,8 @@ const pantalla = {
       <div id="uso">${usoHtml(c)}</div>
 
       <div class="pills" role="group" aria-label="Fecha, reparto y modalidad">
-        <label class="pill pill-date${bloqueado ? ' off' : ''}">${icono('calendario', 16)}<span>${esc(fechaCorta(e.fecha))}</span>
-          <input type="date" data-f="fecha" data-r value="${esc(e.fecha)}" aria-label="Fecha" ${dis}></label>
+        <label class="pill pill-date${bloqueado ? ' off' : ''}">${icono('calendario', 16)}<span>${esc(fechaCorta(e.fecha))}</span>${bloqueado ? '' : `<span class="pill-cambiar" aria-hidden="true">▾</span>`}
+          <input type="date" data-f="fecha" data-r value="${esc(e.fecha)}" aria-label="Fecha del gasto: ${esc(fechaCorta(e.fecha))}. Toca para cambiarla" ${dis}></label>
         ${pill('reparto', `${icono('reparto', 16)}<span id="pillRep">${esc(etiquetaReparto(c))}</span>`)}
         ${pill('modo', `${icono('repetir', 16)}<span>${esc(modoLabel)}</span>${e.dobles.length ? ' <span class="badge soft">×2</span>' : ''}`)}
       </div>

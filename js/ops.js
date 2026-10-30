@@ -95,6 +95,41 @@ export function guardarCategoria({ id, nombre, grupo, tipo, naturaleza, tope_sug
   return row.id;
 }
 
+/**
+ * 2.1 · Nuevo orden de las categorías de un grupo (`ids` en el orden deseado). Se renumera la columna
+ * `orden` de todas las categorías siguiendo el orden de los grupos, para que el orden sea el mismo en
+ * el registro, en Categorías, en Inicio y en el reporte. Solo cambia `orden`; nada más de la fila.
+ */
+export function ordenarCategorias(grupo, ids) {
+  const S0 = S();
+  const enGrupo = L.categorias(S0, { todas: true }).filter((c) => norm(c.grupo || 'Otros') === norm(grupo));
+  const conocidos = new Set(enGrupo.map((c) => c.id));
+  const pedido = ids.filter((id) => conocidos.has(id));
+  if (pedido.length !== enGrupo.length) falla('La lista cambió mientras la ordenabas. Vuelve a intentarlo.');
+  const nuevoGrupo = pedido.map((id) => enGrupo.find((c) => c.id === id));
+  const todas = [];
+  L.grupos(S0, { todas: true }).forEach((g) => {
+    const xs = norm(g.nombre) === norm(grupo) ? nuevoGrupo : L.categorias(S0, { todas: true }).filter((c) => norm(c.grupo || 'Otros') === norm(g.nombre));
+    todas.push(...xs);
+  });
+  // Categorías cuyo grupo ya no existe: al final, en su orden.
+  L.categorias(S0, { todas: true }).forEach((c) => { if (!todas.includes(c)) todas.push(c); });
+  const cambios = todas.map((c, k) => ({ c, orden: k + 1 })).filter(({ c, orden }) => num(c.orden) !== orden).map(({ c, orden }) => ['Categorias', { id: c.id, orden }]);
+  if (cambios.length) st.guardar(cambios);
+  return cambios.length;
+}
+
+/** Sube (d = -1) o baja (d = 1) una categoría dentro de su grupo. */
+export function moverCategoria(id, d) {
+  const cat = S().Categorias.find((c) => c.id === id);
+  if (!cat) return 0;
+  const ids = L.categorias(S(), { todas: true }).filter((c) => norm(c.grupo || 'Otros') === norm(cat.grupo || 'Otros')).map((c) => c.id);
+  const i = ids.indexOf(id), j = i + Number(d);
+  if (i < 0 || j < 0 || j >= ids.length) return 0;
+  [ids[i], ids[j]] = [ids[j], ids[i]];
+  return ordenarCategorias(cat.grupo || 'Otros', ids);
+}
+
 /* ------------------------------------------------------------ Grupos --- */
 
 export function guardarGrupo({ id = null, nombre, color = '', activo = 1 }) {

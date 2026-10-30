@@ -20,7 +20,10 @@
     // Aplica el tema guardado antes de dibujar, para que no parpadee.
     try { var t = JSON.parse(localStorage.getItem('pp-tema')) || {};
       if (t.modo && t.modo !== 'auto') { document.documentElement.dataset.theme = t.modo; document.documentElement.dataset.ppModo = '1'; }
-      if (t.acento && t.acento !== 'verde') document.documentElement.dataset.acento = t.acento; } catch (e) { t = {}; }
+      if (t.acento && t.acento !== 'verde') document.documentElement.dataset.acento = t.acento;
+      // Colores calculados (2.1): sus tonos se guardan para ponerlos antes de dibujar.
+      var ac = localStorage.getItem('pp-acento-css');
+      if (ac) { var st = document.createElement('style'); st.id = 'acento-css'; st.textContent = ac; document.head.appendChild(st); } } catch (e) { t = {}; }
     var r = document.documentElement.dataset;
     r.estilo = t.estilo || 'glass'; r.material = t.material || 'normal'; r.esquinas = t.esquinas || 'squircle';
     r.concentrico = t.concentrico === false ? '0' : '1';

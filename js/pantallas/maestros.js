@@ -109,18 +109,111 @@ const persona = {
 
 const categorias = {
   vista(c) {
-    const { S, admin } = c;
+    const { S, admin, estado: e } = c;
     const grupos = L.categoriasPorGrupo(S, { todas: true });
-    return `${encabezado({ titulo: 'Categorías', derecha: admin ? '<a class="btn-ic link" href="#/categoria/nueva" aria-label="Nueva categoría">' + icono('mas', 24) + '</a>' : '' })}
+    const ordenando = admin && e.ordenar;
+    const derecha = !admin ? '' : ordenando
+      ? '<button class="btn-ic link listo-b" data-a="toggle" data-k="ordenar">Listo</button>'
+      : `<a class="btn-ic link" href="#/categoria/nueva" aria-label="Nueva categoría">${icono('mas', 24)}</a>`;
+    return `${encabezado({ titulo: 'Categorías', derecha })}
     <main class="pad">
       ${!admin ? alerta('info', 'Solo el administrador crea o cambia categorías') : ''}
-      <section class="card list">${fila({ izq: icono('grupo', 22), titulo: 'Grupos de categorías', sub: `${L.grupos(S).length} grupos · ordenan la lista al registrar`, der: icono('adelante', 18), href: '#/grupos' })}</section>
-      ${grupos.map(({ grupo, cats: xs }) => `<h3 class="dia">${puntoCat({ grupo: grupo.nombre })} ${esc(grupo.nombre)}</h3><section class="card list">
-        ${xs.map((x) => fila({ izq: puntoCat(x), titulo: esc(x.nombre) + (L.activo(x) ? '' : ' <span class="badge soft">Inactiva</span>'), sub: `${esc(x.tipo)} · ${esc(x.naturaleza)}${num(x.tope_sugerido) ? ' · tope sugerido ' + esc(fmt0(x.tope_sugerido)) : ''}`, der: admin ? flecha : '', href: admin ? '#/categoria/' + x.id : '' })).join('')}
+      ${ordenando ? '<p class="sm muted">Arrastra cada categoría por el asa ≡ para cambiar su lugar dentro del grupo, o usa las flechas. El orden se usa al registrar, en Inicio y en el reporte.</p>'
+        : `<section class="card list">${fila({ izq: icono('grupo', 22), titulo: 'Grupos de categorías', sub: `${L.grupos(S).length} grupos · ordenan la lista al registrar`, der: icono('adelante', 18), href: '#/grupos' })}</section>
+        ${admin ? `<button class="btn sec" data-a="toggle" data-k="ordenar">${icono('cambiar', 18)} Ordenar categorías</button>` : ''}`}
+      ${grupos.map(({ grupo, cats: xs }) => `<h3 class="dia">${puntoCat({ grupo: grupo.nombre })} ${esc(grupo.nombre)}</h3>
+        <section class="card list${ordenando ? ' ordenable' : ''}" data-grupo="${esc(grupo.nombre)}">
+        ${xs.map((x, i) => ordenando ? `<div class="row cat-orden" data-id="${esc(x.id)}">
+            <button type="button" class="asa" aria-label="Arrastrar ${esc(x.nombre)}" aria-describedby="asa-ayuda">${icono('asa', 22)}</button>
+            ${puntoCat(x)}<span class="row-m"><span class="row-t">${esc(x.nombre)}${L.activo(x) ? '' : ' <span class="badge soft">Inactiva</span>'}</span></span>
+            <span class="ordenar"><button type="button" class="btn-ic" data-a="mover-cat" data-id="${esc(x.id)}" data-d="-1" aria-label="Subir ${esc(x.nombre)}" ${i === 0 ? 'disabled' : ''}>${icono('subir', 18)}</button><button type="button" class="btn-ic" data-a="mover-cat" data-id="${esc(x.id)}" data-d="1" aria-label="Bajar ${esc(x.nombre)}" ${i === xs.length - 1 ? 'disabled' : ''}>${icono('bajar', 18)}</button></span>
+          </div>`
+          : fila({ izq: puntoCat(x), titulo: esc(x.nombre) + (L.activo(x) ? '' : ' <span class="badge soft">Inactiva</span>'), sub: `${esc(x.tipo)} · ${esc(x.naturaleza)}${num(x.tope_sugerido) ? ' · tope sugerido ' + esc(fmt0(x.tope_sugerido)) : ''}`, der: admin ? flecha : '', href: admin ? '#/categoria/' + x.id : '' })).join('')}
       </section>`).join('')}
+      ${ordenando ? '<p id="asa-ayuda" class="sr">Mantén presionado el asa y arrastra hacia arriba o abajo. Con teclado, flechas arriba y abajo.</p><button class="btn pri" data-a="toggle" data-k="ordenar">Listo</button>' : ''}
     </main>`;
+  },
+  montar(raiz, c) { if (c.estado.ordenar) arrastrar(raiz, c); },
+  acciones: {
+    'mover-cat'(c, d) {
+      ops.moverCategoria(d.id, Number(d.d));
+      c.render();
+      // El foco sigue en la flecha de la misma categoría, para seguir moviéndola.
+      const b = document.querySelector(`[data-a="mover-cat"][data-id="${CSS.escape(d.id)}"][data-d="${d.d}"]`);
+      if (b && !b.disabled) b.focus(); else document.querySelector(`[data-a="mover-cat"][data-id="${CSS.escape(d.id)}"]:not([disabled])`)?.focus();
+      c.anunciar(`${L.categoria(c.S, d.id)?.nombre || 'Categoría'} movida`);
+    }
   }
 };
+
+/**
+ * 2.1 · Arrastrar para ordenar (como la edición de listas de iOS): se toma la fila por el asa, se mueve
+ * dentro de su grupo y, al soltarla, se guarda el nuevo orden. Funciona con el dedo, el mouse y el teclado.
+ */
+function arrastrar(raiz, c) {
+  raiz.querySelectorAll('.ordenable').forEach((lista) => {
+    const grupo = lista.dataset.grupo;
+    const guardar = () => {
+      const ids = [...lista.querySelectorAll('.cat-orden')].map((f) => f.dataset.id);
+      if (ops.ordenarCategorias(grupo, ids)) { c.anunciar('Orden guardado'); c.avisar('Orden guardado'); }
+      else c.render();
+    };
+    lista.querySelectorAll('.cat-orden .asa').forEach((asa) => {
+      const fila = asa.closest('.cat-orden');
+      asa.addEventListener('pointerdown', (ev) => {
+        if (ev.button !== undefined && ev.button !== 0) return;
+        ev.preventDefault();
+        asa.setPointerCapture?.(ev.pointerId);
+        const filas = [...lista.querySelectorAll('.cat-orden')];
+        const y0 = ev.clientY;
+        const alto = fila.getBoundingClientRect().height;
+        let pos = filas.indexOf(fila);
+        const inicio = pos;
+        fila.classList.add('arrastrando');
+        lista.classList.add('en-arrastre');
+        const mover = (e2) => {
+          const dy = e2.clientY - y0;
+          fila.style.transform = `translateY(${dy}px)`;
+          const nuevo = Math.max(0, Math.min(filas.length - 1, inicio + Math.round(dy / alto)));
+          if (nuevo !== pos) {
+            pos = nuevo;
+            filas.forEach((f, k) => {
+              if (f === fila) return;
+              const desplaza = inicio < pos ? (k > inicio && k <= pos ? -alto : 0) : (k < inicio && k >= pos ? alto : 0);
+              f.style.transform = desplaza ? `translateY(${desplaza}px)` : '';
+            });
+          }
+        };
+        const soltar = () => {
+          asa.removeEventListener('pointermove', mover);
+          asa.removeEventListener('pointerup', soltar);
+          asa.removeEventListener('pointercancel', soltar);
+          filas.forEach((f) => { f.style.transform = ''; });
+          fila.classList.remove('arrastrando');
+          lista.classList.remove('en-arrastre');
+          if (pos !== inicio) {
+            const ref = filas.filter((f) => f !== fila)[pos] || null;
+            lista.insertBefore(fila, ref);
+            guardar();
+          }
+        };
+        asa.addEventListener('pointermove', mover);
+        asa.addEventListener('pointerup', soltar);
+        asa.addEventListener('pointercancel', soltar);
+      });
+      asa.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown') return;
+        ev.preventDefault();
+        const id = fila.dataset.id;
+        if (ops.moverCategoria(id, ev.key === 'ArrowUp' ? -1 : 1)) {
+          c.render();
+          document.querySelector(`.cat-orden[data-id="${CSS.escape(id)}"] .asa`)?.focus();
+          c.anunciar(`${L.categoria(c.S, id)?.nombre || 'Categoría'} movida`);
+        }
+      });
+    });
+  });
+}
 
 const categoria = {
   iniciar(c) {
