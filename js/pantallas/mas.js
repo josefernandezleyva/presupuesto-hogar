@@ -9,7 +9,7 @@ import { lineaSync, tarjetaPropuesta, usarPropuesta } from './comun.js';
 import { borrarDemo } from '../demo.js';
 import { pendientes as fotosPendientes, procesarCola, estadoCola } from '../evidencia.js';
 import { mensajeError } from '../api.js';
-import { ACENTOS, PERSONAL, colorDe, MODOS, ESTILOS, MATERIALES, ESQUINAS, ICONOS, leerTema, guardarTema, leerIcono, guardarIcono } from '../tema.js';
+import { ACENTOS, PERSONAL, colorDe, MODOS, ESTILOS, MATERIALES, ESQUINAS, ICONOS, leerTema, guardarTema, leerIcono, guardarIcono, AUTO_TIPOS, modoEfectivo, textoAutomatico, elegirAspecto, ponerAutomatico, lugarSol, solDelDia, horaCorta } from '../tema.js';
 
 const flecha = icono('adelante', 18);
 
@@ -43,10 +43,10 @@ const menu = {
       </section>
       <h3 class="dia">App</h3>
       <section class="card list">
-        ${fila({ izq: icono('paleta', 22), titulo: 'Apariencia', sub: `${esc(ESTILOS.find((m) => m.v === leerTema().estilo)?.l || '')} · ${esc(MODOS.find((m) => m.v === leerTema().modo).l)} · ${esc(leerTema().acento === PERSONAL ? 'Color propio' : ACENTOS.find((a) => a.v === leerTema().acento)?.l || 'Verde')}`, der: flecha, href: '#/apariencia' })}
+        ${fila({ izq: icono('paleta', 22), titulo: 'Apariencia', sub: `${esc(ESTILOS.find((m) => m.v === leerTema().estilo)?.l || '')} · ${esc(leerTema().modo === 'auto' ? 'Automático' : leerTema().modo === 'dark' ? 'Oscuro' : 'Claro')} · ${esc(leerTema().acento === PERSONAL ? 'Color propio' : ACENTOS.find((a) => a.v === leerTema().acento)?.l || 'Verde')}`, der: flecha, href: '#/apariencia' })}
         ${fila({ titulo: 'Ajustes y sincronización', sub: lineaSync(c).replace(/<[^>]+>/g, ''), der: flecha, href: '#/ajustes' })}
       </section>
-      <p class="xs muted center">Presupuesto del Hogar · versión 2.1</p>
+      <p class="xs muted center">Presupuesto del Hogar · versión 2.3</p>
     </main>`;
   }
 };
@@ -223,7 +223,7 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 2.1${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
+      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 2.3${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
       <p class="xs muted center">Copia en este celular: ${st.infoCopia().gastos} ${st.infoCopia().gastos === 1 ? 'gasto' : 'gastos'}, en ${esc(st.infoCopia().donde)}</p>
     </main>`;
   },
@@ -281,6 +281,11 @@ function enlaceIcono(meta, icono) {
 const apariencia = {
   // Color propio: se ve en vivo mientras se elige y la pantalla se redibuja al terminar.
   alEscribir(c, f, el, ev) {
+    // Horario personalizado: se guarda al terminar de elegir la hora.
+    if ((f === 'claroDesde' || f === 'oscuroDesde') && /^\d{2}:\d{2}$/.test(el.value)) {
+      if (ev?.type === 'change') { guardarTema({ [f]: el.value, forzado: undefined }); c.render(); }
+      return;
+    }
     if (f !== 'acentoColor' || !/^#[0-9a-f]{6}$/i.test(el.value)) return;
     guardarTema({ acento: PERSONAL, acentoColor: el.value.toUpperCase() });
     if (ev?.type === 'change') c.render();
@@ -292,6 +297,7 @@ const apariencia = {
     const instalada = window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
     return `${encabezado({ titulo: 'Apariencia' })}
     <main class="pad has-tabs">
+      ${seccionAspecto(c, t)}
       <h3 class="dia">Ícono de la app</h3>
       <div class="iconos" role="group" aria-label="Ícono de la app">
         ${ICONOS.map((i) => `<button type="button" class="icono-op${i.v === ico ? ' on' : ''}" data-a="icono" data-v="${i.v}" aria-pressed="${i.v === ico}">
@@ -320,8 +326,6 @@ const apariencia = {
       <h3 class="dia">Formas concéntricas</h3>
       ${segmentadoTema('concentrico', [{ v: '1', l: 'Activadas' }, { v: '0', l: 'Desactivadas' }], t.concentrico ? '1' : '0', 'Formas concéntricas')}
       <p class="xs muted">El radio de lo que va dentro de una tarjeta es el de la tarjeta menos su margen, y las hojas flotantes siguen las esquinas de la pantalla.</p>
-      <h3 class="dia">Modo</h3>
-      ${segmentadoTema('modo', MODOS, t.modo, 'Modo')}
       <h3 class="dia">Color</h3>
       <div class="colores" role="group" aria-label="Color de la app">
         ${ACENTOS.map((a) => `<button type="button" class="color-op${a.v === t.acento ? ' on' : ''}" data-a="acento" data-v="${a.v}" aria-pressed="${a.v === t.acento}"><span class="color-dot" style="background:${a.c}">${a.v === t.acento ? icono('check', 18) : ''}</span><span class="color-l">${esc(a.l)}</span></button>`).join('')}
@@ -347,7 +351,20 @@ const apariencia = {
       try { await navigator.clipboard.writeText(url); c.avisar('Enlace copiado: pégalo en Safari'); }
       catch { c.preguntar({ titulo: 'Copia este enlace', html: `<textarea class="input" rows="4" readonly>${esc(url)}</textarea>`, botones: [], cancelar: 'Cerrar' }); }
     },
-    modo(c, d) { guardarTema({ modo: d.v }); c.render(); },
+    modo(c, d) { elegirAspecto(d.v); c.render(); },
+    automatico(c) { ponerAutomatico(leerTema().modo !== 'auto'); c.render(); },
+    'auto-tipo'(c, d) { guardarTema({ autoTipo: d.v, forzado: undefined }); c.render(); },
+    ubicacion(c) {
+      if (!navigator.geolocation) { c.avisar('Este navegador no da la ubicación', 'bad'); return; }
+      c.estado.buscandoLugar = true; c.render();
+      navigator.geolocation.getCurrentPosition((pos) => {
+        // Con dos decimales (± 1 km) basta para el sol, y no se guarda más precisión de la necesaria.
+        guardarTema({ lat: Math.round(pos.coords.latitude * 100) / 100, lon: Math.round(pos.coords.longitude * 100) / 100 });
+        c.estado.buscandoLugar = false; c.render(); c.avisar('Horas del sol calculadas para tu ubicación');
+      }, () => { c.estado.buscandoLugar = false; c.render(); c.avisar('No se pudo obtener la ubicación. Se usa la de tu zona horaria.', 'bad'); },
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 86400000 });
+    },
+    'ubicacion-quitar'(c) { guardarTema({ lat: undefined, lon: undefined }); c.render(); },
     acento(c, d) { guardarTema({ acento: d.v }); c.render(); },
     estilo(c, d) { guardarTema({ estilo: d.v }); c.render(); },
     material(c, d) { guardarTema({ material: d.v }); c.render(); },
@@ -355,6 +372,54 @@ const apariencia = {
     concentrico(c, d) { guardarTema({ concentrico: d.v === '1' }); c.render(); }
   }
 };
+
+/** Celular en miniatura para elegir Claro u Oscuro (como en Ajustes › Pantalla y brillo). */
+const miniTel = (modo) => `<span class="mini-tel ${modo}" aria-hidden="true">
+  <span class="mt-hora">9:41</span><span class="mt-t"></span>
+  <span class="mt-card"><span class="mt-l w70"></span><span class="mt-l w40"></span><span class="mt-bar"></span></span>
+  <span class="mt-card"><span class="mt-l w55"></span><span class="mt-l w80"></span></span>
+  <span class="mt-tab"><span></span><span></span><span></span><span class="mt-mas"></span></span>
+</span>`;
+
+function seccionAspecto(c, t) {
+  const auto = t.modo === 'auto';
+  const sistemaOscuro = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+  const visto = modoEfectivo(t) || (sistemaOscuro ? 'dark' : 'light');
+  const tipo = t.autoTipo || 'sistema';
+  const op = (v, l) => `<button type="button" class="aspecto-op${visto === v ? ' on' : ''}" role="radio" aria-checked="${visto === v}" data-a="modo" data-v="${v}">
+    ${miniTel(v)}<span class="aspecto-l">${l}</span><span class="radio" aria-hidden="true">${visto === v ? icono('check', 14) : ''}</span></button>`;
+  let detalle = '';
+  if (auto && tipo === 'sol') {
+    const l = lugarSol(t);
+    const sol = solDelDia(new Date(), l.lat, l.lon);
+    detalle = `<div class="ajuste-sub">
+      <p class="sm">${sol ? `Hoy en ${esc(l.nombre)}: claro desde las <b>${horaCorta(sol.sale)}</b> y oscuro desde las <b>${horaCorta(sol.pone)}</b>.` : 'Hoy no hay salida ni puesta del sol en tu ubicación: se usa claro de 7:00 a 19:00.'}</p>
+      ${l.exacto ? '<button type="button" class="link" data-a="ubicacion-quitar">Usar la zona horaria del iPhone</button>'
+        : `<button type="button" class="link" data-a="ubicacion" ${c.estado.buscandoLugar ? 'disabled' : ''}>${c.estado.buscandoLugar ? 'Buscando…' : 'Usar mi ubicación exacta'}</button>`}
+    </div>`;
+  } else if (auto && tipo === 'horario') {
+    detalle = `<div class="ajuste-sub horas">
+      <label class="ajuste-fila"><span>${icono('sol', 18)} Claro desde</span><input type="time" class="hora-in" data-f="claroDesde" value="${esc(t.claroDesde || '07:00')}"></label>
+      <label class="ajuste-fila"><span>${icono('luna', 18)} Oscuro desde</span><input type="time" class="hora-in" data-f="oscuroDesde" value="${esc(t.oscuroDesde || '22:00')}"></label>
+    </div>`;
+  }
+  return `<h3 class="dia">Aspecto</h3>
+  <section class="card aspecto">
+    <div class="aspecto-ops" role="radiogroup" aria-label="Aspecto">${op('light', 'Claro')}${op('dark', 'Oscuro')}</div>
+    <div class="ajuste-fila sep">
+      <span class="ajuste-t"><span>Automático</span>${auto ? `<span class="xs muted" id="auto-txt">${esc(textoAutomatico(t))}</span>` : ''}</span>
+      <button type="button" class="interruptor" role="switch" aria-checked="${auto}" aria-label="Automático" data-a="automatico"><span></span></button>
+    </div>
+  </section>
+  ${auto ? `<h3 class="dia">Cuándo cambia</h3>
+  <section class="card list aspecto-tipos" role="radiogroup" aria-label="Cuándo cambia">
+    ${AUTO_TIPOS.map((a) => `<button type="button" class="row tipo-op" role="radio" aria-checked="${tipo === a.v}" data-a="auto-tipo" data-v="${a.v}">
+      <span class="row-m"><span class="row-t">${esc(a.l)}</span><span class="row-s">${esc(a.d)}</span></span>
+      <span class="tipo-check">${tipo === a.v ? icono('check', 20) : ''}</span></button>
+      ${tipo === a.v ? detalle : ''}`).join('')}
+  </section>` : ''}
+  <p class="xs muted">${auto ? (tipo === 'sistema' ? 'La app se ve clara u oscura igual que el iPhone.' : 'Si tocas Claro u Oscuro, queda así hasta el próximo cambio, como en el iPhone.') : 'Con Automático desactivado, la app se queda siempre en el aspecto elegido.'}</p>`;
+}
 
 function segmentadoTema(k, opciones, sel, label) {
   return `<div class="seg" role="group" aria-label="${esc(label)}">${opciones.map((o) => `<button type="button" class="${o.v === sel ? 'on' : ''}" data-a="${k}" data-v="${o.v}" aria-pressed="${o.v === sel}">${esc(o.l)}</button>`).join('')}</div>`;

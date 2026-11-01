@@ -13,6 +13,8 @@ export const ICON = {
   grafico: '<path d="M4 20V11M10 20V5M16 20v-6M20 20H2"/>',
   puntos: '<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   check: '<path d="M5 12l5 5 9-10"/>',
+  sol: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  luna: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
   alerta: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18h.01"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>',
   compartir: '<path d="M12 3v12M7 8l5-5 5 5M5 13v7h14v-7"/>',

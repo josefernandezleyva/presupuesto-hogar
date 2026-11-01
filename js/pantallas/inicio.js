@@ -86,13 +86,13 @@ export default {
       </section>` : ''}
 
       ${prox.length ? `<section class="card list">
-        <div class="list-h"><h2 class="h2">Próximos pagos</h2><a class="link" href="#/compromisos">Ver más</a></div>
+        <div class="list-h"><h2 class="h2">Por pagar</h2><a class="link" href="#/compromisos">Ver más</a></div>
         ${prox.map(({ gasto: g, atrasado }) => {
           const cat = L.categoria(S, g.categoria_id);
           return `<div class="row prox">
             <a class="row-m" href="#/gasto/${esc(g.id)}"><span class="row-t">${puntoCat(cat)}&nbsp;${esc(g.nota || cat?.nombre || 'Gasto')}</span>
               <span class="row-s${atrasado ? ' warn-t' : ''}">${atrasado ? 'Vencido · ' : ''}${esc(fechaCorta(g.fecha))} · ${dinero(num(g.monto), { moneda: g.moneda })}</span></a>
-            <button class="btn mini" data-a="confirmar" data-id="${esc(g.id)}" aria-label="Confirmar ${esc(g.nota || cat?.nombre || 'gasto')}">Confirmar</button>
+            <button class="btn mini pagar-b" data-a="confirmar" data-id="${esc(g.id)}" aria-label="Marcar ${esc(g.nota || cat?.nombre || 'gasto')} como pagado">${icono('check', 16)} Pagado</button>
           </div>`;
         }).join('')}
       </section>` : ''}
@@ -111,7 +111,7 @@ export default {
   acciones: {
     confirmar(c, d) {
       ops.confirmarGasto(d.id);
-      c.avisar('Gasto confirmado');
+      c.avisar('Marcado como pagado', '', { l: 'Deshacer', fn: (c2) => { ops.desconfirmarGasto(d.id); c2.avisar('Vuelve a estar por pagar'); } });
     },
     'no-ofrecer'(c) { c.setMeta({ avisosNoOfrecer: true }); c.render(); }
   }

@@ -312,7 +312,10 @@ export function guardarGasto(f, { id = null, alcance = 'este' } = {}) {
     categoria_id: f.categoria_id, pagado_por: f.pagado_por,
     registrado_por: prev?.registrado_por || quien(),
     tipo: f.tipo || L.categoria(s, f.categoria_id)?.tipo || 'Variable',
-    estado: prev ? prev.estado : (f.fecha > hoy() ? ESTADO.PROG : ESTADO.CONF),
+    // 2.2: «¿Ya se pagó?» lo elige la persona (Pagado = Confirmado, Por pagar = Programado). Si no lo dice,
+    // un gasto nuevo con fecha futura queda por pagar y uno de hoy o antes, pagado.
+    estado: prev ? (prev.estado !== ESTADO.ANUL && (f.estado === ESTADO.CONF || f.estado === ESTADO.PROG) ? f.estado : prev.estado)
+      : (f.estado === ESTADO.CONF || f.estado === ESTADO.PROG ? f.estado : (f.fecha > hoy() ? ESTADO.PROG : ESTADO.CONF)),
     plan_id: prev?.plan_id || '', nro_cuota: prev?.nro_cuota || '', nota: limpiarDescripcion(f.nota)
   };
   const pcts = f.pcts || (prev ? L.pctsDeGasto(s, prev) : L.participacion(s, mes));
@@ -375,7 +378,7 @@ function crearCuotas(f) {
   const meses = L.mesesDePlan(plan, mesInicio);
   meses.forEach((m) => { if (L.mesCerrado(s, m)) falla(`${m} está cerrado; no se pueden poner cuotas en ese mes.`); });
   const cambios = [['Planes', plan]];
-  meses.forEach((m, k) => cambios.push(...gastoDePlan(plan, k, m, montos[k], pcts)));
+  meses.forEach((m, k) => cambios.push(...gastoDePlan(plan, k, m, montos[k], pcts, k === 0 && f.estado === ESTADO.CONF ? ESTADO.CONF : ESTADO.PROG)));
   st.guardar(cambios);
   return plan.id;
 }
@@ -390,7 +393,7 @@ function crearRecurrente(f) {
   const s = S();
   const meses = L.mesesDePlan(plan, horizonte(mesInicio));
   const cambios = [['Planes', plan]];
-  meses.forEach((m, k) => { if (!L.mesCerrado(s, m)) cambios.push(...gastoDePlan(plan, k, m, r2(plan.monto_cuota * L.factorMes(plan, m)), f.pcts)); });
+  meses.forEach((m, k) => { if (!L.mesCerrado(s, m)) cambios.push(...gastoDePlan(plan, k, m, r2(plan.monto_cuota * L.factorMes(plan, m)), f.pcts, k === 0 && f.estado === ESTADO.CONF ? ESTADO.CONF : ESTADO.PROG)); });
   st.guardar(cambios);
   return plan.id;
 }
@@ -510,6 +513,18 @@ export function actualizarPlan(planId, { duracion, mesesDobles, terminar = false
   }
   st.guardar(cambios);
   if (plan.modalidad === 'Recurrente') asegurarRecurrentes();
+}
+
+/**
+ * 2.2 · Vuelve a «por pagar» un gasto marcado como pagado por error (o que aún no se paga).
+ * Deja de contar en las cuentas entre personas y sigue contando en el presupuesto como comprometido.
+ */
+export function desconfirmarGasto(id) {
+  const g = st.fila('Gastos', id);
+  if (!g) falla('No encontré el gasto.');
+  if (L.mesCerrado(S(), g.mes)) falla(`${g.mes} está cerrado. Para cambiarlo, el administrador debe reabrirlo.`);
+  if (g.estado !== ESTADO.CONF) return;
+  st.guardar([['Gastos', { id, estado: ESTADO.PROG }]]);
 }
 
 /** RF-35: confirma un programado, opcionalmente con el monto real. */

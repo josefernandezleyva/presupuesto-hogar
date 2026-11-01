@@ -53,8 +53,8 @@ export default {
         </section>`;
       }).join('')}
 
-      ${prog.length && !cerrado ? alerta('warn', `${prog.length} ${prog.length === 1 ? 'gasto programado sin confirmar' : 'gastos programados sin confirmar'}`,
-        `${prog.slice(0, 3).map((g) => `${g.nota || L.categoria(S, g.categoria_id)?.nombre} (${fmt(g.monto_soles)})`).join(', ')}${prog.length > 3 ? '…' : ''}. Al cerrar se confirman con su monto previsto${proyeccion ? ' y el saldo queda: ' + (proyeccion.length ? proyeccion.map((t) => `${L.persona(S, t.de)?.nombre} debe ${fmt(t.monto)} a ${L.persona(S, t.a)?.nombre}`).join('; ') : 'al día') : ''}.`) : ''}
+      ${prog.length && !cerrado ? alerta('warn', `${prog.length} ${prog.length === 1 ? 'gasto por pagar' : 'gastos por pagar'}`,
+        `${prog.slice(0, 3).map((g) => `${g.nota || L.categoria(S, g.categoria_id)?.nombre} (${fmt(g.monto_soles)})`).join(', ')}${prog.length > 3 ? '…' : ''}. Al cerrar se marcan como pagados con su monto previsto${proyeccion ? ' y el saldo queda: ' + (proyeccion.length ? proyeccion.map((t) => `${L.persona(S, t.de)?.nombre} debe ${fmt(t.monto)} a ${L.persona(S, t.a)?.nombre}`).join('; ') : 'al día') : ''}.`) : ''}
 
       <section class="card">
         <div class="split"><h2 class="h2">Pagos entre personas</h2>${!cerrado ? '<button class="link" data-a="toggle" data-k="form">Registrar pago</button>' : ''}</div>
@@ -101,7 +101,7 @@ export default {
       const futuro = mes > mesActual();
       c.preguntar({
         titulo: `¿Cerrar ${nombreMes(mes)}?`,
-        texto: `${futuro ? 'Ojo: este mes todavía no termina. ' : ''}Se confirman los programados pendientes, se guardan los saldos en la hoja y el mes queda bloqueado.`,
+        texto: `${futuro ? 'Ojo: este mes todavía no termina. ' : ''}Los gastos por pagar se marcan como pagados con su monto previsto, se guardan los saldos en la hoja y el mes queda bloqueado.`,
         botones: [{ l: 'Cerrar mes', estilo: 'pri', fn: () => { ops.cerrarMes(mes); c.avisar('Mes cerrado'); } }]
       });
     },

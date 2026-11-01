@@ -6,7 +6,7 @@ import * as ops from './ops.js';
 import { mesActual, sumarMeses } from './util.js';
 import { hoja, toast } from './ui.js';
 import { mensajeError } from './api.js';
-import { aplicarTema } from './tema.js';
+import { aplicarTema, programarCambio, revisarAspecto } from './tema.js';
 import { aplicarSquircle } from './squircle.js';
 
 import inicio from './pantallas/inicio.js';
@@ -307,6 +307,7 @@ export async function sincronizar(manual = false) {
 /* ----------------------------------------------------------- Arranque --- */
 
 aplicarTema();
+programarCambio();
 st.cargar();
 let pendienteRender = false;
 st.suscribir(() => {
@@ -325,6 +326,8 @@ window.addEventListener('popstate', () => { app.volviendo = true; });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   window.ppTextoSistema?.();
+  // Al volver a la app (por ejemplo, de noche) se pone el aspecto que toca, y se reprograma el próximo cambio.
+  revisarAspecto(); programarCambio();
   avisos.limpiarGlobo();
   sincronizar(false);
 });

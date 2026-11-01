@@ -34,6 +34,8 @@ function iniciarNuevo(c) {
     panel: null
   });
   e.mesInicio = mesDe(e.fecha);
+  e.pagado = e.fecha > hoy() ? '0' : '1';
+  e.pagadoManual = false;
   // 2.0 · «Registrar otro igual»: copia descripción, monto, moneda, categoría y quién pagó (la fecha es hoy).
   const base = c.query.copia ? st.fila('Gastos', c.query.copia) : null;
   if (base) Object.assign(e, { nota: base.nota || '', monto: String(base.monto || ''), moneda: base.moneda || 'PEN', categoria_id: base.categoria_id, pagado_por: base.pagado_por || e.pagado_por, dupOk: false });
@@ -56,6 +58,9 @@ function iniciarEdicion(c, g) {
     dobles: plan ? L.mesesDobles(plan) : [], repite: '1', panel: null
   });
   e.planOrig = plan ? { sinFin: e.sinFin, durN: e.durN, dobles: e.dobles.join(',') } : null;
+  e.pagado = g.estado === L.ESTADO.CONF ? '1' : '0';
+  e.pagadoOrig = e.pagado;
+  e.pagadoManual = true;
   const pcts = L.pctsDeGasto(S, g);
   const hogar = L.participacion(S, g.mes);
   const igual = (a, b) => L.personas(S, { todas: true }).every((p) => num(a[p.id]) === num(b[p.id]));
@@ -250,7 +255,7 @@ function recurrenteHtml(c) {
   const m = parseMonto(e.monto) || 0;
   const dia = Number(e.fecha.slice(8, 10));
   const doble = e.dobles.length && m > 0 ? ` y ${esc(fmt(r2(m * 2), { moneda: e.moneda }))} en ${esc(doblesTexto(e))}` : '';
-  return `<p class="muted xs">Queda programado cada mes, el día ${dia}${m > 0 ? `: ${esc(fmt(m, { moneda: e.moneda }))}${doble}` : ''}. Lo confirmas con un toque.</p>`;
+  return `<p class="muted xs">Queda programado cada mes, el día ${dia}${m > 0 ? `: ${esc(fmt(m, { moneda: e.moneda }))}${doble}` : ''}. Cada mes queda por pagar hasta que lo marques como pagado.</p>`;
 }
 
 /** Selector de los meses en que se paga doble (por ejemplo junio y diciembre). */
@@ -263,6 +268,17 @@ function doblesHtml(e, nota = '') {
     <p class="xs muted">${e.dobles.length ? `Paga el doble en ${esc(doblesTexto(e))}.` : 'Por ejemplo, préstamos con cuota doble en julio y diciembre.'}${nota ? ' ' + nota : ''}</p>`;
 }
 
+/** Qué significa el estado elegido (y, en un plan nuevo, a qué mes se aplica). */
+function pagoInfo(c, plan) {
+  const e = c.estado;
+  const planNuevo = !e.id && e.modalidad !== 'Unico';
+  if (e.pagado === '1') {
+    return planNuevo ? 'El primer mes queda pagado; los siguientes, por pagar hasta que los marques.'
+      : 'Cuenta en lo gastado del mes y en las cuentas entre ustedes (quién pagó y cuánto le toca a cada uno).';
+  }
+  return `${planNuevo ? 'Todos los meses quedan por pagar. ' : ''}Queda como recordatorio: aparece en Inicio › Por pagar y en el presupuesto como comprometido, pero no en las cuentas entre ustedes hasta que lo marques como pagado.`;
+}
+
 function refrescar(c, { sugs = true } = {}) {
   const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
   set('uso', usoHtml(c));
@@ -273,6 +289,11 @@ function refrescar(c, { sugs = true } = {}) {
   set('recInfo', recurrenteHtml(c));
   const pr = document.getElementById('pillRep'); if (pr) pr.textContent = etiquetaReparto(c);
   set('repInfo', infoReparto(c));
+  set('pagoInfo', pagoInfo(c));
+  const sp = document.querySelector('[data-k="pagado"]')?.closest('.seg');
+  if (sp) sp.querySelectorAll('button').forEach((b) => { const on = b.dataset.v === c.estado.pagado; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+  document.querySelector('.pago-card')?.classList.toggle('pagado', c.estado.pagado === '1');
+  document.querySelector('.pago-card')?.classList.toggle('por-pagar', c.estado.pagado !== '1');
   // Al salir del campo («change») no se redibujan: el toque sobre una sugerencia debe llegar a su botón.
   if (sugs) set('sugBox', sugerenciasHtml(c));
   const act = presetActivo(c);
@@ -415,6 +436,11 @@ const pantalla = {
       </div>
       <p class="rep-info xs" id="repInfo">${infoReparto(c)}</p>
 
+      ${!anulado ? `<section class="card pago-card${e.pagado === '1' ? ' pagado' : ' por-pagar'}" aria-labelledby="pago-t">
+        <div class="split vc"><span id="pago-t" class="b">¿Ya se pagó?</span>${segmentado('pagado', [{ v: '1', l: 'Pagado' }, { v: '0', l: 'Por pagar' }], e.pagado, '¿Ya se pagó?')}</div>
+        <p class="xs muted" id="pagoInfo">${pagoInfo(c, plan)}</p>
+      </section>` : ''}
+
       ${e.panel === 'reparto' ? `<section class="card panel">
         <div class="lbl">¿Cómo se reparte este gasto?</div>
         <div class="chips">
@@ -442,7 +468,6 @@ const pantalla = {
       <div id="evBox">${evCardHtml(c, g, bloqueado)}</div>
 
       ${edit && !bloqueado && !cerrado ? `<div class="links">
-        ${g?.estado === L.ESTADO.PROG ? '<button type="button" class="link" data-a="confirmar">Confirmar con este monto</button>' : ''}
         <a class="link" href="#/nuevo?copia=${esc(e.id)}">Registrar otro igual</a>
         <button type="button" class="link bad-t" data-a="anular">Anular gasto</button>
       </div>` : ''}
@@ -456,7 +481,8 @@ const pantalla = {
     if (!e.id && !e.montado) {
       e.montado = true;
       const d = raiz.querySelector('#nota');
-      if (d) setTimeout(() => d.focus(), 60);
+      // Solo si la persona todavía no tocó otro campo (si ya está escribiendo el monto, no se le quita).
+      if (d) setTimeout(() => { const a = document.activeElement; if (!a || a === document.body || a === d || !a.closest?.('main')) d.focus(); }, 60);
     }
     // «Siguiente» en el teclado: de la descripción al monto, con el teclado numérico.
     const nota = raiz.querySelector('#nota');
@@ -522,6 +548,8 @@ const pantalla = {
     if (f === 'nota') e.notaPropuesta = false;
     limpiarFalta(c, f === 'nota' || f === 'monto' || f === 'tc' ? f : '');
     if (f === 'fecha') {
+      // Mientras la persona no elija, una fecha futura propone «Por pagar» y una de hoy o antes, «Pagado».
+      if (!e.pagadoManual) e.pagado = e.fecha > hoy() ? '0' : '1';
       if (e.modalidad !== 'Cuotas' || e.planOrig) e.mesInicio = mesDe(e.fecha);
       if (e.moneda === 'USD' && !e.tcManual) e.tc = String(L.tipoCambio(c.S, mesDe(e.fecha)) || '');
       if (e.rep === 'hogar') cargarPcts(c, L.participacion(c.S, mesDe(e.fecha)));
@@ -531,6 +559,7 @@ const pantalla = {
 
   alElegir(c, k) {
     if (k === 'tipo') c.estado.tipoManual = true;
+    if (k === 'pagado') c.estado.pagadoManual = true;
   },
 
   acciones: {
@@ -644,7 +673,8 @@ const pantalla = {
         categoria_id: e.categoria_id, pagado_por: e.pagado_por, fecha: e.fecha, nota: ops.limpiarDescripcion(e.nota), tipo: e.tipo || '',
         pcts, repHogar: e.rep === 'hogar', modalidad: e.modalidad,
         nroCuotas: e.nroCuotas, mesInicio: e.mesInicio, montoCuota: parseMonto(e.montoCuota) || 0,
-        duracion: e.sinFin === '1' ? 0 : num(e.durN), mesesDobles: e.dobles
+        duracion: e.sinFin === '1' ? 0 : num(e.durN), mesesDobles: e.dobles,
+        estado: e.pagado === '1' ? L.ESTADO.CONF : L.ESTADO.PROG
       };
       const g = e.id ? st.fila('Gastos', e.id) : null;
       const cat = L.categoria(c.S, e.categoria_id);
@@ -691,8 +721,8 @@ const pantalla = {
         if (e.ev) evid.encolar(gid, e.ev, nombreFoto);
         else if (e.evQuitar && e.id) evid.quitar(e.id);
         const n = Math.floor(num(e.nroCuotas));
-        const texto = e.id ? (cambiosPlan?.terminar ? 'Listo: deja de repetirse después de este mes' : 'Cambios guardados')
-          : e.modalidad === 'Cuotas' ? `Se programaron ${n} cuotas` : e.modalidad === 'Recurrente' ? 'Gasto mensual programado' : 'Gasto guardado';
+        const texto = e.id ? (cambiosPlan?.terminar ? 'Listo: deja de repetirse después de este mes' : e.pagado !== e.pagadoOrig ? (e.pagado === '1' ? 'Marcado como pagado' : 'Marcado como por pagar') : 'Cambios guardados')
+          : e.modalidad === 'Cuotas' ? `Se programaron ${n} cuotas` : e.modalidad === 'Recurrente' ? 'Gasto mensual programado' : e.pagado === '1' ? 'Gasto guardado como pagado' : 'Guardado como por pagar: te lo recordamos en Inicio';
         terminar(texto, e.id ? null : id);
       };
       const cambioDelGasto = g && (Math.abs(monto - num(g.monto)) > 0.004 || g.categoria_id !== e.categoria_id || g.pagado_por !== e.pagado_por
@@ -705,11 +735,6 @@ const pantalla = {
         return;
       }
       hacer('este');
-    },
-    confirmar(c) {
-      ops.confirmarGasto(c.estado.id, parseMonto(c.estado.monto), c.estado.moneda === 'USD' ? tcVigente(c) : null);
-      c.volver('gastos');
-      c.avisar('Gasto confirmado');
     },
     anular(c) {
       const g = st.fila('Gastos', c.estado.id);

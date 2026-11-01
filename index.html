@@ -19,7 +19,13 @@
   <script>
     // Aplica el tema guardado antes de dibujar, para que no parpadee.
     try { var t = JSON.parse(localStorage.getItem('pp-tema')) || {};
-      if (t.modo && t.modo !== 'auto') { document.documentElement.dataset.theme = t.modo; document.documentElement.dataset.ppModo = '1'; }
+      var md = t.modo && t.modo !== 'auto' ? t.modo : '';
+      // 2.3 · Automático por horario o del atardecer al amanecer: se decide aquí, antes de dibujar.
+      if (!md && t.autoTipo && t.autoTipo !== 'sistema') { var hz = JSON.parse(localStorage.getItem('pp-horario') || 'null');
+        if (hz) { var n = new Date(), mi = n.getHours() * 60 + n.getMinutes();
+          md = hz.claro <= hz.oscuro ? (mi >= hz.claro && mi < hz.oscuro ? 'light' : 'dark') : (mi >= hz.oscuro && mi < hz.claro ? 'dark' : 'light');
+          if (hz.forzado && hz.forzado.hasta > n.getTime()) md = hz.forzado.modo; } }
+      if (md) { document.documentElement.dataset.theme = md; document.documentElement.dataset.ppModo = '1'; }
       if (t.acento && t.acento !== 'verde') document.documentElement.dataset.acento = t.acento;
       // Colores calculados (2.1): sus tonos se guardan para ponerlos antes de dibujar.
       var ac = localStorage.getItem('pp-acento-css');

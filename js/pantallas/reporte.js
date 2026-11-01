@@ -98,8 +98,8 @@ export default {
           <select class="select" data-f="cat" data-r aria-label="Categoría"><option value="">Categoría</option>${cats.map((x) => `<option value="${esc(x.id)}"${x.id === e.cat ? ' selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select>
           <select class="select" data-f="est" data-r aria-label="Estado">
             <option value="todos"${e.est === 'todos' ? ' selected' : ''}>Estado</option>
-            <option value="conf"${e.est === 'conf' ? ' selected' : ''}>Confirmados</option>
-            <option value="prog"${e.est === 'prog' ? ' selected' : ''}>Programados</option>
+            <option value="conf"${e.est === 'conf' ? ' selected' : ''}>Pagados</option>
+            <option value="prog"${e.est === 'prog' ? ' selected' : ''}>Por pagar</option>
           </select>
         </div>
         <div class="split gap">
@@ -164,7 +164,7 @@ function vistaDe(c, r) {
       const cat = L.categoria(S, g.categoria_id);
       const plan = g.plan_id ? L.idx(S).plan.get(g.plan_id) : null;
       return `<a class="row" href="#/gasto/${esc(g.id)}">
-        <span class="row-m"><span class="row-t">${puntoCat(cat)} ${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${g.estado === L.ESTADO.PROG ? ' <span class="badge soft">Programado</span>' : ''}</span>
+        <span class="row-m"><span class="row-t">${puntoCat(cat)} ${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${g.estado === L.ESTADO.PROG ? ' <span class="badge soft">Por pagar</span>' : ''}</span>
         <span class="row-s">${esc(fechaCorta(g.fecha))} · ${esc(cat?.nombre || '')}${plan && plan.modalidad === 'Cuotas' ? ` · cuota ${g.nro_cuota}/${plan.nro_cuotas}` : ''} · pagó ${esc(L.persona(S, g.pagado_por)?.nombre || '')}</span></span>
         <span class="amt">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}</span></a>`;
     }).join('')}</section>`;
