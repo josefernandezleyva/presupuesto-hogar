@@ -787,3 +787,29 @@ main.buscando .lt-mes, main.buscando .filtros-fila { display: none; }
 /* Cambio automático de aspecto: fundido suave de toda la pantalla, como el iPhone. */
 html.vt-aspecto::view-transition-old(root), html.vt-aspecto::view-transition-new(root) { animation-duration: .6s; animation-timing-function: ease; }
 .aspecto-tipos .ajuste-sub + .tipo-op { border-top: 1px solid var(--line); }
+
+/* =====================================================================
+   2.4 · Cuánto le toca a cada uno, en soles
+   ===================================================================== */
+.reparto-res { display: flex; flex-direction: column; gap: 8px; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; padding: 12px 14px; border: 1px solid var(--line); }
+.reparto-res:disabled { cursor: default; opacity: 1; }
+.reparto-res:disabled .rr-cambiar { display: none; }
+.rr-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rr-cambiar { display: inline-flex; align-items: center; gap: 2px; font-size: 0.8rem; color: var(--accent-text); font-weight: 600; }
+.rr-bar { display: flex; gap: 2px; height: 6px; border-radius: 3px; overflow: hidden; }
+.rr-bar span { min-width: 3px; }
+.rr-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.rr-cols.muchas { grid-template-columns: 1fr; gap: 6px; }
+.rr-p { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rr-cols.muchas .rr-p { flex-direction: row; align-items: baseline; gap: 8px; }
+.rr-cols.muchas .rr-n { flex: 1; }
+.rr-n { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8667rem; color: var(--soft-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rr-m { font-size: 1.3333rem; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); }
+.rr-pct { font-size: 0.8rem; color: var(--muted); }
+.rr-p.cero .rr-m { color: var(--muted); }
+.rr-pie { color: var(--soft-ink); line-height: 1.35; }
+.pct-m { font-size: 0.8667rem; font-weight: 600; color: var(--soft-ink); text-align: right; }
+.amt .tu-parte { color: var(--accent-text); font-weight: 600; }
+.amt .tu-parte.cero { color: var(--muted); font-weight: 400; }
+.ej-part { color: var(--soft-ink); margin: 0; }
+.rr-vig { color: var(--muted); border-top: 1px solid var(--line); padding-top: 6px; }

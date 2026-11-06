@@ -163,6 +163,16 @@ function deslizar(raiz) {
   });
 }
 
+/** 2.4 · Tu parte de un gasto compartido («tú S/ 120.00»); nada si es todo tuyo. */
+function tuParte(c, g) {
+  const yo = c.meta.personaId;
+  if (!yo || L.personas(c.S).length < 2 || g.estado === L.ESTADO.ANUL) return '';
+  const total = num(g.monto_soles);
+  const parte = L.montoPara(c.S, g, yo);
+  if (!(total > 0) || Math.abs(parte - total) < 0.005) return '';
+  return parte > 0 ? `<span class="row-s tu-parte">tú ${dinero(parte)}</span>` : '<span class="row-s tu-parte cero">no te toca</span>';
+}
+
 function item(c, g, cerrado, { fecha = false } = {}) {
   const { S } = c;
   const cat = L.categoria(S, g.categoria_id);
@@ -179,7 +189,7 @@ function item(c, g, cerrado, { fecha = false } = {}) {
       ${avatar(L.persona(S, g.pagado_por), 32)}
       <span class="row-m"><span class="row-t">${puntoCat(cat)}&nbsp;${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${prog ? ` <span class="badge ${g.fecha < hoy() ? 'warn' : 'soft'}">${g.fecha < hoy() ? 'Vencido' : 'Por pagar'}</span>` : ''}</span>
       <span class="row-s">${g.nota ? esc(cat?.nombre || '') + ' · ' : ''}${sub}</span></span>
-      <span class="amt num">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}</span>
+      <span class="amt num">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}${tuParte(c, g)}</span>
     </a>
     ${prog && !cerrado && !fecha ? `<button class="pagar-c" data-a="confirmar" data-id="${esc(g.id)}" aria-label="Marcar ${esc(titulo)} como pagado" title="Marcar como pagado">${icono('check', 20)}</button>` : ''}
   </div>`;

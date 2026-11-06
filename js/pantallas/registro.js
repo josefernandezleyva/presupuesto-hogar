@@ -227,12 +227,66 @@ function presetActivo(c) {
   return null;
 }
 
+/** 2.4 · Cuánto le toca a cada uno de este gasto, siempre a la vista y al día mientras se escribe el monto. */
+function repResumenHtml(c) {
+  const { S, estado: e, meta } = c;
+  const ps = L.personas(S);
+  if (ps.length < 2) return '';
+  const soles = solesDelMes(c);
+  const p = pctsActuales(c);
+  if (L.sumaPcts(p) !== 100) return `<p class="bad-t xs">El reparto suma ${L.sumaPcts(p)} %; debe ser 100 %.</p>`;
+  const filas = L.calcularReparto(soles, p);
+  const monto = (id) => filas.find((r) => r.persona_id === id)?.monto_soles || 0;
+  const conMonto = soles > 0;
+  const nuevoPlan = !e.id || !e.planOrig;
+  const cuando = e.modalidad === 'Cuotas' ? (nuevoPlan ? ' · primera cuota' : ' · esta cuota') : e.modalidad === 'Recurrente' ? ' · cada mes' : '';
+  const corto = (x) => esc(x.alias || x.nombre.split(' ')[0]) + (x.id === meta.personaId ? ' <span class="muted">(tú)</span>' : '');
+  const conParte = ps.filter((x) => num(p[x.id]) > 0);
+  const barra = `<div class="rr-bar" aria-hidden="true">${conParte.map((x) => `<span style="flex:${num(p[x.id])};background:${esc(x.color || '#888')}"></span>`).join('')}</div>`;
+  const celdas = ps.map((x) => `<div class="rr-p${num(p[x.id]) > 0 ? '' : ' cero'}">
+      <span class="rr-n">${avatar(x, 20)} ${corto(x)}</span>
+      <span class="rr-m num">${conMonto ? esc(fmt(monto(x.id))) : 'S/ —'}</span>
+      <span class="rr-pct">${Number(num(p[x.id]).toFixed(2))} %</span>
+    </div>`).join('');
+  // Quién pagó y qué parte de la otra persona pasa a las cuentas del mes.
+  const pagador = L.persona(S, e.pagado_por);
+  const ajenas = conMonto && pagador ? filas.filter((r) => r.persona_id !== pagador.id && r.monto_soles > 0) : [];
+  let pie = '';
+  if (!conMonto) pie = 'Escribe el monto para ver cuánto le toca a cada uno.';
+  else if (ajenas.length) {
+    const quienes = ajenas.map((r) => { const x = L.persona(S, r.persona_id); return `${esc(x?.alias || x?.nombre.split(' ')[0] || '')} (${esc(fmt(r.monto_soles))})`; }).join(' y ');
+    pie = e.pagado === '1'
+      ? `Pagó ${esc(pagador.alias || pagador.nombre.split(' ')[0])}: lo que le toca a ${quienes} se suma a las cuentas entre ustedes.`
+      : `Al marcarlo como pagado, lo que le toca a ${quienes} se sumará a las cuentas entre ustedes.`;
+  } else pie = `Lo pagó quien lo asume: no cambia las cuentas entre ustedes.`;
+  const vig = L.vigencia(S, mesDe(e.fecha));
+  const origen = e.rep === 'hogar'
+    ? `Como el hogar · participación ${vig.desde && vig.desde <= mesDe(e.fecha) ? `vigente desde ${esc(nombreMes(vig.desde).toLowerCase())}` : 'la primera registrada'}`
+    : 'Reparto propio de este gasto';
+  return `<button type="button" class="card reparto-res" data-a="panel" data-k="reparto" aria-label="Le toca a cada uno. Toca para cambiar el reparto" ${c.estado.bloqueado ? 'disabled' : ''}>
+    <span class="rr-h"><span class="lbl">Le toca a cada uno${cuando}</span><span class="rr-cambiar">Cambiar ${icono('adelante', 14)}</span></span>
+    ${barra}
+    <span class="rr-cols${ps.length > 2 ? ' muchas' : ''}">${celdas}</span>
+    <span class="rr-pie xs">${pie}</span>
+    <span class="rr-vig xs">${origen}</span>
+  </button>`;
+}
+
+/** Monto que corresponde a un porcentaje en el panel de reparto («= S/ 120.00»). */
+function montoPctHtml(c, id) {
+  const soles = solesDelMes(c);
+  if (!(soles > 0)) return '<span class="muted">= S/ —</span>';
+  const f = L.calcularReparto(soles, pctsActuales(c)).find((r) => r.persona_id === id);
+  return '= ' + esc(fmt(f ? f.monto_soles : 0));
+}
+
 function detalleRepartoHtml(c) {
   const { S } = c;
   const soles = solesDelMes(c);
   const p = pctsActuales(c);
   const filas = L.calcularReparto(soles, p);
   const suma = L.sumaPcts(p);
+  if (L.personas(S).length === 2) return suma === 100 ? '' : `<p class="bad-t xs">Suma ${suma} %; debe ser 100 %.</p>`;
   return L.personas(S).map((x) => {
     const f = filas.find((r) => r.persona_id === x.id);
     return `<div class="split sm"><span>${avatar(x, 22)} ${esc(x.nombre)}</span><span><strong>${num(p[x.id])} %</strong> · ${esc(fmt(f ? f.monto_soles : 0))}</span></div>`;
@@ -285,6 +339,9 @@ function refrescar(c, { sugs = true } = {}) {
   const conv = document.getElementById('conv');
   if (conv) { const tmp = document.createElement('div'); tmp.innerHTML = tcHtml(c); const n = tmp.querySelector('#conv'); if (n) { conv.className = n.className; conv.innerHTML = n.innerHTML; } }
   set('repDet', detalleRepartoHtml(c));
+  // Solo si cambió: al salir del monto (blur) la tarjeta no se reemplaza bajo el dedo y el toque llega.
+  if (c.estado.panel !== 'reparto') { const rr = document.getElementById('repRes'); const h = repResumenHtml(c); if (rr && rr.dataset.h !== h) { rr.innerHTML = h; rr.dataset.h = h; } }
+  L.personas(c.S).forEach((x) => set('pm_' + x.id, montoPctHtml(c, x.id)));
   set('cuotas', cuotasHtml(c));
   set('recInfo', recurrenteHtml(c));
   const pr = document.getElementById('pillRep'); if (pr) pr.textContent = etiquetaReparto(c);
@@ -370,6 +427,7 @@ const pantalla = {
     const cerrado = L.mesCerrado(S, mes);
     const anulado = g?.estado === L.ESTADO.ANUL;
     const bloqueado = anulado || (g && L.mesCerrado(S, g.mes));
+    e.bloqueado = !!bloqueado;
     const ps = L.personas(S);
     const pagador = L.persona(S, e.pagado_por);
     const catSel = L.categoria(S, e.categoria_id);
@@ -434,7 +492,8 @@ const pantalla = {
         ${pill('reparto', `${icono('reparto', 16)}<span id="pillRep">${esc(etiquetaReparto(c))}</span>`)}
         ${pill('modo', `${icono('repetir', 16)}<span>${esc(modoLabel)}</span>${e.dobles.length ? ' <span class="badge soft">×2</span>' : ''}`)}
       </div>
-      <p class="rep-info xs" id="repInfo">${infoReparto(c)}</p>
+      ${e.panel === 'reparto' || ps.length < 2 ? `<p class="rep-info xs" id="repInfo">${infoReparto(c)}</p>` : ''}
+      <div id="repRes">${e.panel === 'reparto' ? '' : repResumenHtml(c)}</div>
 
       ${!anulado ? `<section class="card pago-card${e.pagado === '1' ? ' pagado' : ' por-pagar'}" aria-labelledby="pago-t">
         <div class="split vc"><span id="pago-t" class="b">¿Ya se pagó?</span>${segmentado('pagado', [{ v: '1', l: 'Pagado' }, { v: '0', l: 'Por pagar' }], e.pagado, '¿Ya se pagó?')}</div>
@@ -452,7 +511,8 @@ const pantalla = {
           ? `<label class="sr" for="slider">Porcentaje de ${esc(ps[0].nombre)}</label>
              <input id="slider" type="range" class="slider" min="0" max="100" step="1" data-f="slider" value="${Math.round(np(e['pct_' + ps[0].id]))}">
              <div class="pct-pair">${ps.map((p) => `<label class="pct-box"><span class="sm">${avatar(p, 22)} ${esc(p.alias || p.nombre.split(' ')[0])}</span>
-               <span class="pct-w"><input class="inl pct" data-f="pct_${esc(p.id)}" inputmode="decimal" enterkeyhint="done" value="${esc(e['pct_' + p.id])}" aria-label="Porcentaje de ${esc(p.nombre)}"> %</span></label>`).join('')}</div>
+               <span class="pct-w"><input class="inl pct" data-f="pct_${esc(p.id)}" inputmode="decimal" enterkeyhint="done" value="${esc(e['pct_' + p.id])}" aria-label="Porcentaje de ${esc(p.nombre)}"> %</span>
+               <span class="pct-m num" id="pm_${esc(p.id)}" aria-live="polite">${montoPctHtml(c, p.id)}</span></label>`).join('')}</div>
              <p class="xs muted">Mueve la barra o escribe el porcentaje de una persona, por ejemplo 66: la otra se completa sola.</p>`
           : ps.map((p) => `<label class="frow"><span>${avatar(p, 22)} ${esc(p.nombre)}</span><span class="pct-w"><input class="inl pct" data-f="pct_${esc(p.id)}" inputmode="decimal" value="${esc(e['pct_' + p.id])}"> %</span></label>`).join('')}
         <div id="repDet" class="stack-sm">${detalleRepartoHtml(c)}</div>

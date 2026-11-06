@@ -3,7 +3,7 @@
 import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import * as st from '../store.js';
-import { esc, fmt0, nombreMes, num, r2, mesActual } from '../util.js';
+import { esc, fmt, fmt0, nombreMes, num, r2, mesActual } from '../util.js';
 import { encabezado, fila, avatar, icono, alerta, segmentado } from '../ui.js';
 import { puntoCat, tarjetaPropuesta, usarPropuesta, confirmarDistribucion } from './comun.js';
 import { norm } from '../util.js';
@@ -33,6 +33,7 @@ const personas = {
         <div class="pbar" role="img" aria-label="${act.map((p) => `${esc(p.nombre)} ${part[p.id] || 0} %`).join(', ')}">
           ${act.filter((p) => part[p.id]).map((p) => `<div style="width:${(part[p.id] / total) * 100}%;background:${esc(p.color)}">${part[p.id]} %</div>`).join('')}
         </div>
+        <p class="sm ej-part" id="ejPart">${ejemploParticipacion(S, act, part)}</p>
         ${proximas.length ? `<p class="xs muted">Próximos cambios: ${proximas.map((d) => `desde ${esc(nombreMes(d.desde).toLowerCase())}, ${esc(L.textoReparto(S, d.pcts))}`).join('; ')}.</p>` : ''}
         ${admin && !e.editPart ? '<button class="btn sec" data-a="toggle" data-k="editPart">Cambiar desde un mes</button>' : ''}
         ${e.editPart ? `
@@ -53,6 +54,10 @@ const personas = {
   },
   alEscribir(c, f) {
     if (!f.startsWith('pp_')) return;
+    const act = L.personas(c.S);
+    const nuevos = Object.fromEntries(act.map((p) => [p.id, num(c.estado['pp_' + p.id])]));
+    const ej = document.getElementById('ejPart');
+    if (ej) ej.innerHTML = ejemploParticipacion(c.S, act, nuevos);
     const s = r2(L.personas(c.S).reduce((a, p) => a + num(c.estado['pp_' + p.id]), 0));
     const el = document.getElementById('sumaPart');
     if (el) { el.textContent = `Suma ${s} %`; el.className = 'sm ' + (s === 100 ? 'ok-t' : 'bad-t'); }
@@ -329,5 +334,15 @@ const grupo = {
     }
   }
 };
+
+/** 2.4 · La participación en soles, con un ejemplo: «De un gasto de S/ 200: José pone S/ 120 y Mayra S/ 80». */
+function ejemploParticipacion(S, act, part) {
+  const con = act.filter((p) => num(part[p.id]) > 0);
+  if (con.length < 2 || L.sumaPcts(part) !== 100) return '';
+  const filas = L.calcularReparto(200, Object.fromEntries(con.map((p) => [p.id, num(part[p.id])])));
+  const nombre = (id) => { const p = L.persona(S, id); return esc(p?.alias || p?.nombre.split(' ')[0] || ''); };
+  const partes = filas.map((r) => `${nombre(r.persona_id)} pone <b class="num">${esc(fmt(r.monto_soles))}</b>`);
+  return `De un gasto de <b class="num">S/ 200.00</b>: ${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}.`;
+}
 
 export default { personas, persona, categorias, categoria, grupos, grupo };
