@@ -338,8 +338,143 @@ export function guardarGasto(f, { id = null, alcance = 'este' } = {}) {
       cambios.push(['Planes', { id: plan.id, monto_cuota: base, moneda: f.moneda, tipo_cambio: tc, categoria_id: f.categoria_id, pagado_por: f.pagado_por, tipo: gasto.tipo, descripcion: gasto.nota || plan.descripcion, reparto }]);
     }
   }
+  // 2.5: en cuotas, el total del plan es siempre la suma de sus cuotas vigentes.
+  if (prev?.plan_id) cambios.push(...totalDelPlan(prev.plan_id, cambios));
   st.guardar(cambios);
   return gasto.id;
+}
+
+/** Cambio del total de un plan de cuotas tras los cambios en curso (o nada si no es de cuotas o no cambia). */
+function totalDelPlan(planId, cambios = [], extraPlan = {}) {
+  const plan = st.fila('Planes', planId);
+  if (!plan || plan.modalidad !== 'Cuotas') return [];
+  const nuevos = new Map(cambios.filter(([t, f]) => t === 'Gastos' && f.plan_id === planId).map(([, f]) => [f.id, f]));
+  const vivos = (L.idx(S()).gastosPorPlan.get(planId) || []).map((g) => nuevos.get(g.id) || g);
+  nuevos.forEach((f, id) => { if (!vivos.some((g) => g.id === id)) vivos.push(f); });
+  const total = r2(vivos.filter((g) => g.estado !== ESTADO.ANUL).reduce((a, g) => a + num(g.monto), 0));
+  const fila = { id: planId, ...extraPlan };
+  if (Math.abs(total - num(plan.monto_total)) > 0.004) fila.monto_total = total;
+  return Object.keys(fila).length > 1 ? [['Planes', fila]] : [];
+}
+
+/* ------------------------------------------------- 2.5 · Ajustes de cuotas --- */
+
+const dinero = (n, moneda = 'PEN') => (moneda === 'USD' ? 'US$ ' : 'S/ ') + r2(n).toFixed(2);
+
+/** Cuotas de un plan, ordenadas, con lo que se puede cambiar: las por pagar de meses abiertos. */
+export function cuotasDelPlan(planId) {
+  const s = S();
+  const plan = st.fila('Planes', planId);
+  if (!plan || plan.modalidad !== 'Cuotas') falla('No encontré el plan de cuotas.');
+  const todas = (L.idx(s).gastosPorPlan.get(planId) || []).slice().sort((a, b) => num(a.nro_cuota) - num(b.nro_cuota));
+  const vivas = todas.filter((g) => g.estado !== ESTADO.ANUL);
+  const libre = (g) => g.estado === ESTADO.PROG && !L.mesCerrado(s, g.mes);
+  return { plan, todas, vivas, libres: vivas.filter(libre), fijas: vivas.filter((g) => !libre(g)), libre };
+}
+
+function rehacerCuota(g, monto) {
+  const tc = num(g.tipo_cambio) || 1;
+  const otro = { ...g, monto: r2(monto), monto_soles: r2(r2(monto) * tc) };
+  return [['Gastos', otro], ...filasReparto(otro, L.pctsDeGasto(S(), g))];
+}
+
+/** Reparte `resto` entre las cuotas `libres` (respetando las cuotas dobles) y devuelve los cambios. */
+function repartirEn(plan, libres, resto) {
+  if (!libres.length) return [];
+  const factores = L.factoresDe(plan, libres.map((g) => g.mes));
+  const montos = L.montosCuotas(r2(resto), libres.length, factores);
+  if (montos.some((m) => !(m > 0))) falla('El monto no alcanza para repartirlo entre las cuotas por pagar.');
+  const cambios = [];
+  libres.forEach((g, i) => { if (Math.abs(montos[i] - num(g.monto)) > 0.004) cambios.push(...rehacerCuota(g, montos[i])); });
+  return cambios;
+}
+
+/**
+ * Vista previa de un cambio del total: lo fijo (pagado o en meses cerrados) se mantiene y lo que falta
+ * se reparte entre las cuotas por pagar. { fijo, resto, libres, montos, error }.
+ */
+export function previaTotal(planId, nuevoTotal) {
+  const { plan, libres, fijas } = cuotasDelPlan(planId);
+  const total = r2(num(nuevoTotal));
+  const fijo = r2(fijas.reduce((a, g) => a + num(g.monto), 0));
+  const resto = r2(total - fijo);
+  let error = '';
+  if (!(total > 0)) error = 'Escribe un total mayor que cero.';
+  else if (!libres.length) error = 'sin_pendientes';
+  else if (!(resto >= 0.01 * libres.length)) error = `El total debe ser mayor que lo ya pagado o en meses cerrados (${dinero(fijo, plan.moneda)}).`;
+  const montos = !error ? L.montosCuotas(resto, libres.length, L.factoresDe(plan, libres.map((g) => g.mes))) : [];
+  return { plan, total, fijo, resto, libres, fijas, montos, error, diferencia: r2(total - num(plan.monto_total)) };
+}
+
+/** Cambia el total de un plan de cuotas y reparte la diferencia entre las cuotas por pagar. */
+export function cambiarTotalPlan(planId, nuevoTotal) {
+  const p = previaTotal(planId, nuevoTotal);
+  if (p.error === 'sin_pendientes') falla('No quedan cuotas por pagar en meses abiertos. Agrega la diferencia como una cuota de ajuste.');
+  if (p.error) falla(p.error);
+  const cambios = repartirEn(p.plan, p.libres, p.resto);
+  const unidades = L.factoresDe(p.plan, p.libres.map((g) => g.mes)).reduce((a, b) => a + b, 0);
+  cambios.push(...totalDelPlan(planId, cambios, { monto_cuota: r2(p.resto / unidades) }));
+  st.guardar(cambios);
+}
+
+/**
+ * Ajusta el monto de una cuota (pagada o por pagar, en un mes abierto).
+ * modo 'solo': el total del plan cambia. modo 'compensar': el total se mantiene y la diferencia se
+ * reparte entre las cuotas por pagar que siguen.
+ */
+export function previaCuota(gastoId, nuevoMonto, modo = 'solo') {
+  const g = st.fila('Gastos', gastoId);
+  if (!g?.plan_id) return { error: 'No encontré la cuota.' };
+  const { plan, libres, vivas } = cuotasDelPlan(g.plan_id);
+  const monto = r2(num(nuevoMonto));
+  const siguen = libres.filter((x) => num(x.nro_cuota) > num(g.nro_cuota));
+  const base = { g, plan, monto, siguen, nuevos: [], total: num(plan.monto_total), error: '' };
+  if (g.estado === ESTADO.ANUL) return { ...base, error: 'La cuota está anulada.' };
+  if (L.mesCerrado(S(), g.mes)) return { ...base, error: `${g.mes} está cerrado. Para cambiarlo, el administrador debe reabrirlo.` };
+  if (!(monto > 0)) return { ...base, error: 'Escribe un monto mayor que cero.' };
+  const sumaVivas = r2(vivas.reduce((a, x) => a + num(x.monto), 0));
+  if (modo !== 'compensar') return { ...base, total: r2(sumaVivas - num(g.monto) + monto) };
+  if (!siguen.length) return { ...base, error: 'No hay cuotas por pagar después de esta para repartir la diferencia.' };
+  // La diferencia se reparte entre las que siguen (en partes iguales, dobles en sus meses), sin borrar
+  // los ajustes que ya tenga alguna de ellas.
+  const partes = L.montosCuotas(r2(num(g.monto) - monto), siguen.length, L.factoresDe(plan, siguen.map((x) => x.mes)));
+  const nuevos = siguen.map((x, i) => r2(num(x.monto) + partes[i]));
+  if (nuevos.some((m) => !(m > 0))) return { ...base, error: 'La diferencia es mayor que lo que falta pagar en las cuotas siguientes.' };
+  return { ...base, nuevos, total: sumaVivas };
+}
+
+/**
+ * Ajusta el monto de una cuota (pagada o por pagar, en un mes abierto).
+ * modo 'solo': el total del plan cambia. modo 'compensar': el total se mantiene y la diferencia se
+ * reparte entre las cuotas por pagar que siguen.
+ */
+export function ajustarCuota(gastoId, nuevoMonto, modo = 'solo') {
+  const p = previaCuota(gastoId, nuevoMonto, modo);
+  if (p.error) falla(p.error);
+  const cambios = rehacerCuota(p.g, p.monto);
+  p.siguen.forEach((x, i) => { if (p.nuevos.length && Math.abs(p.nuevos[i] - num(x.monto)) > 0.004) cambios.push(...rehacerCuota(x, p.nuevos[i])); });
+  cambios.push(...totalDelPlan(p.g.plan_id, cambios));
+  st.guardar(cambios);
+}
+
+/**
+ * Agrega al plan una cuota de ajuste (por ejemplo, una diferencia que apareció al final).
+ * Queda como una cuota más: «Cuota 7 de 7», en el mes elegido.
+ */
+export function agregarCuotaAjuste(planId, montoTxt, mes, { estado = ESTADO.PROG } = {}) {
+  const { plan, todas } = cuotasDelPlan(planId);
+  const monto = r2(num(montoTxt));
+  if (!(monto > 0)) falla('Escribe un monto mayor que cero.');
+  if (!/^\d{4}-\d{2}$/.test(mes || '')) falla('Elige el mes de la cuota.');
+  if (L.mesCerrado(S(), mes)) falla(`${mes} está cerrado; elige un mes abierto.`);
+  const k = Math.max(num(plan.nro_cuotas), ...todas.map((g) => num(g.nro_cuota))); // índice de la nueva (base 0)
+  if (st.existe('Gastos', L.idGastoDePlan(planId, k))) falla('Ya existe esa cuota. Sincroniza e intenta de nuevo.');
+  const pcts = plan.reparto ? JSON.parse(plan.reparto) : null;
+  const cambios = gastoDePlan(plan, k, mes, monto, pcts, estado === ESTADO.CONF ? ESTADO.CONF : ESTADO.PROG);
+  cambios[0][1].nota = `${plan.descripcion} (ajuste)`;
+  cambios.push(...totalDelPlan(planId, cambios, { nro_cuotas: k + 1 }));
+  st.guardar(cambios);
+  return cambios[0][1].id;
 }
 
 function gastoDePlan(plan, k, mes, monto, pcts, estado = ESTADO.PROG) {

@@ -451,7 +451,7 @@ const pantalla = {
       ${!edit && e.fecha !== hoy() ? `<button type="button" class="link center-self" data-a="mesHoy">Usar la fecha de hoy</button>` : ''}
       ${cerrado && !bloqueado ? alerta('warn', `${nombreMes(mes)} está cerrado`, edit ? 'No se puede cambiar. El administrador puede reabrirlo en Cierre de mes.' : 'Cambia la fecha a un mes abierto o pide al administrador que lo reabra.') : ''}
       ${bloqueado ? alerta('warn', anulado ? 'Este gasto está anulado' : `${nombreMes(g.mes)} está cerrado`, anulado ? 'No cuenta en los totales.' : 'Solo se puede ver.') : ''}
-      ${plan ? `<p class="muted sm">${plan.modalidad === 'Cuotas' ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : 'Gasto mensual'} · ${esc(plan.descripcion)} · ${esc(g.estado)}</p>` : ''}
+      ${plan ? `<p class="muted sm">${plan.modalidad === 'Cuotas' ? `<a class="link" href="#/plan/${esc(plan.id)}">Cuota ${esc(g.nro_cuota)} de ${esc(plan.nro_cuotas)}</a>` : 'Gasto mensual'} · ${esc(plan.descripcion)} · ${g.estado === L.ESTADO.CONF ? 'Pagado' : g.estado === L.ESTADO.PROG ? 'Por pagar' : esc(g.estado)}</p>` : ''}
 
       ${e.panel === 'pago' && ps.length > 2 ? `<section class="card panel">
         <div class="lbl">¿Quién pagó?</div>
@@ -787,11 +787,18 @@ const pantalla = {
       };
       const cambioDelGasto = g && (Math.abs(monto - num(g.monto)) > 0.004 || g.categoria_id !== e.categoria_id || g.pagado_por !== e.pagado_por
         || g.moneda !== e.moneda || (g.nota || '') !== f.nota || e.rep !== 'hogar');
-      if (g?.plan_id && g.estado === L.ESTADO.PROG && cambioDelGasto) {
-        c.preguntar({ titulo: '¿A qué gastos aplica el cambio?', texto: 'Este gasto es parte de un plan de cuotas o mensual.', botones: [
-          { l: 'Solo a este', estilo: 'sec', fn: () => hacer('este') },
-          { l: 'A este y los siguientes', estilo: 'pri', fn: () => hacer('siguientes') }
-        ] });
+      // 2.5: en cuotas, al cambiar el monto de una se puede mantener el total repartiendo la diferencia.
+      const planG = g?.plan_id ? st.fila('Planes', g.plan_id) : null;
+      const cambioMonto = g && Math.abs(monto - num(g.monto)) > 0.004 && g.moneda === e.moneda;
+      const compensable = planG?.modalidad === 'Cuotas' && cambioMonto && !ops.previaCuota(g.id, monto, 'compensar').error;
+      if (g?.plan_id && (g.estado === L.ESTADO.PROG || compensable) && cambioDelGasto) {
+        const botones = planG?.modalidad === 'Cuotas' && cambioMonto
+          ? [{ l: 'Solo esta cuota (cambia el total)', estilo: 'sec', fn: () => hacer('este') },
+            ...(compensable ? [{ l: 'Mantener el total (repartir la diferencia en las que siguen)', estilo: 'pri', fn: () => { ops.ajustarCuota(g.id, monto, 'compensar'); hacer('este'); } }] : []),
+            ...(g.estado === L.ESTADO.PROG ? [{ l: 'Mismo monto en esta y las siguientes', estilo: 'sec', fn: () => hacer('siguientes') }] : [])]
+          : [{ l: 'Solo a este', estilo: 'sec', fn: () => hacer('este') }, { l: 'A este y los siguientes', estilo: 'pri', fn: () => hacer('siguientes') }];
+        c.preguntar({ titulo: '¿A qué gastos aplica el cambio?', texto: planG?.modalidad === 'Cuotas' && cambioMonto
+          ? `La cuota ${g.nro_cuota} pasa de ${fmt(num(g.monto), { moneda: g.moneda })} a ${fmt(monto, { moneda: g.moneda })}.` : 'Este gasto es parte de un plan de cuotas o mensual.', botones });
         return;
       }
       hacer('este');
@@ -830,6 +837,8 @@ function panelModo(c, g, plan, tipoEf) {
   }
   if (plan && plan.modalidad === 'Cuotas') {
     return `<p class="sm">Cuota ${esc(g.nro_cuota)} de ${esc(plan.nro_cuotas)} · total ${esc(fmt(plan.monto_total, { moneda: plan.moneda }))}.</p>
+      <a class="btn sec plan-link" href="#/plan/${esc(plan.id)}">${icono('lista', 18)} Ver y ajustar todas las cuotas</a>
+      <p class="xs muted">Ahí puedes cambiar el total y repartirlo entre las cuotas por pagar, ajustar una cuota (aunque ya esté pagada) o agregar una cuota de ajuste.</p>
       ${doblesHtml(e, 'Lo que falta pagar se reparte de nuevo desde este mes.')}
       ${tipo}`;
   }
