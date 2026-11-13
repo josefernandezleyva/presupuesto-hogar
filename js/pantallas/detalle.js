@@ -6,7 +6,7 @@ import * as ops from '../ops.js';
 import * as st from '../store.js';
 import { esc, num, fmt, fechaCorta, nombreMes } from '../util.js';
 import { encabezado, avatar, icono, vacio } from '../ui.js';
-import { placaCat, placa } from './comun.js';
+import { placaCat, placa, sinMonto, montoTxt, marcarPagado, pedirAnular, pedirRestaurar } from './comun.js';
 
 const corto = (p) => esc(p?.alias || String(p?.nombre || '').split(' ')[0] || '');
 
@@ -36,8 +36,9 @@ export default {
         <section class="det-cab">
           ${placaCat(cat, 60)}
           <h1 class="det-t">${esc(g.nota || cat?.nombre || 'Gasto')}</h1>
-          <div class="det-m num${anulado ? ' tachado' : ''}">${esc(fmt(num(g.monto), { moneda: g.moneda }))}</div>
-          ${g.moneda !== 'PEN' ? `<div class="sm muted">${esc(fmt(num(g.monto_soles)))} al cambio de ${esc(String(g.tipo_cambio))}</div>` : ''}
+          <div class="det-m num${anulado ? ' tachado' : ''}${sinMonto(g) ? ' por-def' : ''}">${esc(montoTxt(g))}</div>
+          ${sinMonto(g) ? '<p class="sm muted center">Es un recordatorio mensual: escribe el monto cuando llegue el recibo (Editar), o al marcarlo como pagado.</p>' : ''}
+          ${g.moneda !== 'PEN' && !sinMonto(g) ? `<div class="sm muted">${esc(fmt(num(g.monto_soles)))} al cambio de ${esc(String(g.tipo_cambio))}</div>` : ''}
           <span class="badge ${est[0]} det-est">${est[1]}</span>
         </section>
 
@@ -76,31 +77,13 @@ export default {
       </main>`;
     },
     acciones: {
-      confirmar(c, d) {
-        ops.confirmarGasto(d.id);
-        c.avisar('Marcado como pagado', '', { l: 'Deshacer', fn: (c2) => { ops.desconfirmarGasto(d.id); c2.avisar('Vuelve a estar por pagar'); } });
-      },
+      confirmar(c, d) { marcarPagado(c, d.id); },
       desconfirmar(c, d) {
         ops.desconfirmarGasto(d.id);
         c.avisar('Vuelve a estar por pagar', '', { l: 'Deshacer', fn: (c2) => { ops.confirmarGasto(d.id); c2.avisar('Marcado como pagado'); } });
       },
-      restaurar(c, d) {
-        const g = st.fila('Gastos', d.id);
-        ops.restaurarGasto(d.id, g.fecha > new Date().toISOString().slice(0, 10) ? L.ESTADO.PROG : L.ESTADO.CONF);
-        c.avisar('Gasto restaurado');
-      },
-      anular(c, d) {
-        const g = st.fila('Gastos', d.id);
-        const fin = (alcance) => { ops.anularGasto(g.id, alcance); c.avisar('Gasto anulado', '', { l: 'Deshacer', fn: (c2) => { ops.restaurarGasto(g.id, g.estado); c2.avisar('Gasto restaurado'); } }); };
-        if (g.plan_id) {
-          c.preguntar({ titulo: 'Anular gasto', texto: 'Es parte de un plan. ¿Anulas solo este o también los programados que siguen?', botones: [
-            { l: 'Solo este', estilo: 'danger', fn: () => fin('este') },
-            { l: 'Este y los siguientes', estilo: 'sec', fn: () => { ops.anularGasto(g.id, 'siguientes'); c.avisar('Gastos anulados'); } }
-          ] });
-        } else {
-          c.preguntar({ titulo: 'Anular gasto', texto: 'Deja de contar en los totales, pero queda en la hoja como anulado. Puedes restaurarlo después.', botones: [{ l: 'Anular', estilo: 'danger', fn: () => fin('este') }] });
-        }
-      }
+      restaurar(c, d) { pedirRestaurar(c, d.id); },
+      anular(c, d) { pedirAnular(c, d.id); }
     }
   }
 };

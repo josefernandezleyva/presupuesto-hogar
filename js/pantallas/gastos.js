@@ -2,7 +2,7 @@ import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import { esc, fechaCorta, r2, num, nombreMes, hoy } from '../util.js';
 import { tituloGrande, tabbar, avatar, dinero, vacio, icono } from '../ui.js';
-import { puntoCat, placaCat } from './comun.js';
+import { puntoCat, placaCat, sinMonto, marcarPagado, pedirAnular } from './comun.js';
 import { segmentado } from '../ui.js';
 
 /** 3.1 · Filtros activos (tipo, categoría y persona; todos en la hoja «Filtros»). */
@@ -44,7 +44,7 @@ function listaHtml(c) {
       <div class="card list">
         ${gs.map((g) => item(c, g, cerrado)).join('')}
       </div>`).join('') : vacio(nFiltros(e) || e.fe ? 'No hay gastos con estos filtros.' : 'Todavía no hay gastos este mes.', nFiltros(e) || e.fe ? '<button class="btn sec" data-a="limpiar">Quitar filtros</button>' : '<a class="btn pri" href="#/nuevo">Registrar gasto</a>')}
-    ${anulados ? `<p class="muted xs center">${anulados} ${anulados === 1 ? 'gasto anulado no se muestra' : 'gastos anulados no se muestran'}.</p>` : ''}`;
+    ${anulados ? `<a class="link sm center ver-anu" href="#/anulados">${anulados} ${anulados === 1 ? 'gasto anulado' : 'gastos anulados'} este mes · Ver y restaurar</a>` : ''}`;
 }
 
 export default {
@@ -110,20 +110,13 @@ export default {
     limpiar(c) { Object.assign(c.estado, { ft: '', fc: '', fe: '', fp: '' }); c.render(); },
     'borrar-q'(c) { c.estado.q = ''; c.render(); },
     // 2.2: «Pagado» marca un gasto por pagar como pagado; el aviso trae «Deshacer» por si fue un toque errado.
-    confirmar(c, d) {
-      ops.confirmarGasto(d.id);
-      c.avisar('Marcado como pagado', '', { l: 'Deshacer', fn: (c2) => { ops.desconfirmarGasto(d.id); c2.avisar('Vuelve a estar por pagar'); } });
-    },
-    // Deslizar a la izquierda y «Anular» (o el botón que VoiceOver ofrece en cada gasto). Se puede deshacer.
-    'anular-lista'(c, d) {
-      const g = c.S.Gastos.find((x) => x.id === d.id);
-      if (!g) return;
-      const antes = g.estado;
-      ops.anularGasto(g.id, 'este');
-      c.avisar(`«${g.nota || L.categoria(c.S, g.categoria_id)?.nombre || 'Gasto'}» anulado`, '', { l: 'Deshacer', fn: (c2) => { ops.restaurarGasto(g.id, antes); c2.avisar('Gasto recuperado'); } });
-    }
+    confirmar(c, d) { marcarPagado(c, d.id); },
+    // Deslizar a la izquierda y «Anular» (o el botón que VoiceOver ofrece en cada gasto). 3.2: siempre pide confirmación.
+    'anular-lista'(c, d) { pedirAnular(c, d.id); }
   }
 };
+
+const corto = (p) => p?.alias || String(p?.nombre || '').split(' ')[0] || '';
 
 const ANCHO = 92; // ancho del botón «Anular» que aparece al deslizar
 
@@ -184,16 +177,20 @@ function item(c, g, cerrado, { fecha = false } = {}) {
   const sub = [
     plan ? (plan.modalidad === 'Cuotas' ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : 'Recurrente') : '',
     fecha ? esc(fechaCorta(g.fecha)) : L.tipoGasto(S, g),
-    esc(L.persona(S, g.pagado_por)?.nombre || '')
+    esc(corto(L.persona(S, g.pagado_por)))
   ].filter(Boolean).join(' · ');
+  const vencido = g.fecha < hoy();
+  // 3.2: la etiqueta de estado va siempre al inicio de la línea de detalle (antes saltaba de línea según el largo del título).
+  const etiqueta = g.estado === L.ESTADO.PROG ? `<span class="badge ${vencido ? 'bad' : 'warn'}">${vencido ? 'Vencido' : 'Por pagar'}</span>` : '';
   const prog = g.estado === L.ESTADO.PROG;
   const titulo = g.nota || cat?.nombre || 'Gasto';
   const fila = `<div class="gitem${cerrado ? '' : ' sw-cont'}">
     <a class="gitem-m" href="#/ver/${esc(g.id)}">
       <span class="placa-av">${placaCat(cat, 38)}${avatar(L.persona(S, g.pagado_por), 18)}</span>
-      <span class="row-m"><span class="row-t">${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${prog ? ` <span class="badge ${g.fecha < hoy() ? 'bad' : 'warn'}">${g.fecha < hoy() ? 'Vencido' : 'Por pagar'}</span>` : ''}</span>
+      <span class="row-m"><span class="row-t">${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}</span>
+      ${etiqueta ? `<span class="row-est">${etiqueta}</span>` : ''}
       <span class="row-s">${g.nota ? esc(cat?.nombre || '') + ' · ' : ''}${sub}</span></span>
-      <span class="amt num">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}${tuParte(c, g)}</span>
+      <span class="amt num">${sinMonto(g) ? '<span class="por-def">Por definir</span>' : `${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}${tuParte(c, g)}`}</span>
     </a>
     ${prog && !cerrado && !fecha ? `<button class="pagar-c" data-a="confirmar" data-id="${esc(g.id)}" aria-label="Marcar ${esc(titulo)} como pagado" title="Marcar como pagado">${icono('check', 20)}</button>` : ''}
   </div>`;

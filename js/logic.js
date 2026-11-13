@@ -765,12 +765,13 @@ export function avisosDeRegistro(S, id, yo) {
   const pagador = persona(S, g.pagado_por);
   let que;
   if (plan?.modalidad === 'Cuotas') que = `${desc} · ${dineroTxt(plan.monto_total, plan.moneda)} en ${plan.nro_cuotas} cuotas de ${dineroTxt(plan.monto_cuota, plan.moneda)}`;
-  else if (plan?.modalidad === 'Recurrente') que = `${desc} · ${dineroTxt(plan.monto_cuota, plan.moneda)} cada mes`;
+  else if (plan?.modalidad === 'Recurrente') que = num(plan.monto_cuota) > 0 ? `${desc} · ${dineroTxt(plan.monto_cuota, plan.moneda)} cada mes` : `${desc} · cada mes, monto por definir`;
   else que = `${desc} · ${dineroTxt(g.monto, g.moneda)}`;
   return personas(S).filter((p) => p.id !== yo).map((p) => {
     const reparto = repartoDeGasto(S, g).find((x) => x.persona_id === p.id);
     const parte = reparto ? reparto.monto_soles : 0;
-    const toca = parte > 0 ? `Te toca ${dineroTxt(parte)} (${Number(reparto.porcentaje).toLocaleString('es-PE', { maximumFractionDigits: 2 })} %)${plan ? ' al mes' : ''}` : 'No te toca nada';
+    const sinMonto = plan?.modalidad === 'Recurrente' && !(num(plan.monto_cuota) > 0);
+    const toca = sinMonto ? `Te tocará ${Number(reparto?.porcentaje || 0).toLocaleString('es-PE', { maximumFractionDigits: 2 })} % cuando tenga monto` : parte > 0 ? `Te toca ${dineroTxt(parte)} (${Number(reparto.porcentaje).toLocaleString('es-PE', { maximumFractionDigits: 2 })} %)${plan ? ' al mes' : ''}` : 'No te toca nada';
     const pago = g.pagado_por === p.id ? ' · lo pagaste tú' : g.pagado_por !== yo && pagador ? ` · pagó ${nombreCorto(pagador)}` : '';
     return {
       para: p.id,

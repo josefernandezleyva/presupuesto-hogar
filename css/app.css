@@ -1050,3 +1050,31 @@ main.buscando .filtro-b, main.buscando .seg-estado { display: none; }
 .hog-p .pct-w { min-height: 48px; display: inline-flex; align-items: center; }
 .ej-hogar { margin: 0; padding: 10px 12px; border-radius: var(--r-inner); background: var(--accent-soft); color: var(--accent-text); }
 .aviso-demo { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px; border-radius: 22px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 8px 24px rgb(0 0 0 / .08); }
+
+/* ===================================================================== 3.2 === */
+/* Etiqueta de estado siempre en su propia línea, alineada con el título (antes saltaba según el largo). */
+.gitem .row-est { display: flex; margin: 3px 0 2px; }
+.gitem .row-est .badge { margin: 0; }
+.gitem .row-t { overflow-wrap: anywhere; }
+.por-def { color: var(--warn-ink); font-weight: 700; font-size: 0.9rem; white-space: nowrap; }
+.det-m.por-def { font-size: 2rem; }
+.sin-monto-i { text-align: center; max-width: 30em; }
+/* Íconos más grandes dentro de su placa; el avatar se corre a la esquina para no tapar el dibujo. */
+.placa svg { display: block; }
+.placa-av .av { right: -7px; bottom: -7px; }
+/* Confirmar anulación y restaurar */
+.anu-q { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 12px 14px; border-radius: var(--r-inner); background: var(--track); }
+.anu-q .xs { grid-column: 1 / -1; }
+/* Gastos anulados */
+.anulados { gap: 12px; }
+.anu-cab { display: flex; gap: 12px; align-items: center; }
+.anu-cab p { margin: 0; }
+.anu-res { margin: 0; }
+.anu-f { gap: 10px; }
+.anu-f .con-placa { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+.anu-d { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.anu-d .tachado { text-decoration: line-through; color: var(--muted); }
+.ver-anu { display: flex; justify-content: center; min-height: 44px; align-items: center; }
+.placa .ic.lc { stroke-width: 1.6; }
+/* Con avatar en la esquina, el dibujo se corre un poco hacia arriba a la izquierda para que no lo tape. */
+.placa-av .placa svg { transform: translate(-2px, -2px); }

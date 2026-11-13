@@ -21,10 +21,11 @@ import inicioSesion from './pantallas/conectar.js';
 import reporte from './pantallas/reporte.js';
 import novedades from './pantallas/novedades.js';
 import detalle from './pantallas/detalle.js';
+import anulados from './pantallas/anulados.js';
 import { procesarCola } from './evidencia.js';
 import * as avisos from './avisos.js';
 
-const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, ...cierre, analisis, reporte, ...mas, ...maestros, ...plan, ...inicioSesion, ...novedades, ...detalle };
+const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, ...cierre, analisis, reporte, ...mas, ...maestros, ...plan, ...inicioSesion, ...novedades, ...detalle, ...anulados };
 // Pestañas de la barra inferior (2.0): entre ellas la transición es un fundido; el resto entra deslizando.
 const PESTANAS = new Set(['inicio', 'gastos', 'cierre', 'analisis']);
 const SIN_SESION = new Set(['conectar', 'hogar', 'quien']);
@@ -385,21 +386,19 @@ st.cargarCopia().catch(() => 'local').then(async (r) => {
   mostrarNovedadesVersion();
 });
 
-/** Una sola vez: qué cambió en la 3.1 y dónde quedó cada cosa (solo a quien ya usaba la app). */
+/** Una sola vez: qué cambió en la 3.2 (solo a quien ya usaba la app). */
 function mostrarNovedadesVersion() {
   const meta = st.getMeta();
-  if (meta.visto31) return;
-  st.setMeta({ visto20: true, visto30: true, visto31: true });
+  if (meta.visto32) return;
+  st.setMeta({ visto20: true, visto30: true, visto31: true, visto32: true });
   if (puerta() || (!meta.ultimoSync && !meta.demo)) return; // instalación nueva: no hay nada que comparar
   preguntar({
-    titulo: 'Novedades de la versión 3.1',
+    titulo: 'Novedades de la versión 3.2',
     html: `<ul class="nuevo20">
-      <li>El botón <b>+</b> quedó al centro de la barra: <b>Inicio · Gastos · + · Plan · Cuentas</b>. «Plan» es el presupuesto del mes.</li>
-      <li><b>Registrar</b> empieza por el monto. Debajo, una tarjeta con fecha, quién pagó, reparto, cómo se paga, si ya se pagó y la foto.</li>
-      <li>El reparto y las cuotas se eligen en una hoja que sube desde abajo, con la lista de cómo quedan las cuotas.</li>
-      <li>En Gastos, la búsqueda y <b>Filtros</b> van juntos; la persona se elige dentro de Filtros.</li>
-      <li>En Cuentas, «Registrar pago» se llena en una hoja aparte.</li>
-      <li>Tus datos no cambian: todo sigue en la misma hoja de Google.</li>
+      <li><b>Anular siempre pregunta</b> antes, también al deslizar en Gastos.</li>
+      <li>Nuevo <b>Gastos anulados</b> (Hogar y ajustes, o al final de Gastos): revísalos y <b>restaura</b> los que fueron un error, como pagados o por pagar.</li>
+      <li>Un gasto <b>mensual sin monto</b> (S/ 0) sirve de recordatorio, por ejemplo el mantenimiento del edificio. Al marcarlo pagado te pide cuánto fue.</li>
+      <li>La etiqueta «Por pagar» queda siempre en el mismo lugar y los íconos se ven más grandes.</li>
     </ul>`,
     botones: [{ l: 'Entendido', estilo: 'pri' }],
     cancelar: 'Cerrar'

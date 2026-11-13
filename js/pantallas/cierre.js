@@ -4,7 +4,7 @@ import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import { esc, fmt, fmt0, nombreMes, sumarMeses, hoy, parseMonto, mesActual } from '../util.js';
 import { tituloGrande, tabbar, avatar, alerta, dinero0, dinero, chips, icono, encabezado } from '../ui.js';
-import { fraseSaldo, nombre, placa } from './comun.js';
+import { fraseSaldo, nombre, placa, sinMonto } from './comun.js';
 
 /* 3.1 · «Registrar pago» se llena en una hoja que sube desde abajo (antes, un formulario dentro de la página). */
 function formPago(c) {
@@ -145,7 +145,8 @@ const cerrarMes = {
     if (e.paso === 1) {
       cuerpo = prog.length ? `<h2 class="paso-t">${prog.length === 1 ? 'Queda 1 gasto por pagar' : `Quedan ${prog.length} gastos por pagar`}</h2>
         <p class="sm muted">Al cerrar, los que sigan por pagar se marcan como pagados con su monto previsto. Si alguno no se pagó o cambió de monto, ajústalo antes.</p>
-        <section class="card list">${prog.map((g) => `<a class="row" href="#/ver/${esc(g.id)}"><span class="row-m"><span class="row-t">${esc(g.nota || L.categoria(S, g.categoria_id)?.nombre || 'Gasto')}</span><span class="row-s">${esc(g.fecha)}</span></span><span class="amt num">${dinero(g.monto_soles)}</span></a>`).join('')}</section>`
+        <section class="card list">${prog.map((g) => `<a class="row" href="#/ver/${esc(g.id)}"><span class="row-m"><span class="row-t">${esc(g.nota || L.categoria(S, g.categoria_id)?.nombre || 'Gasto')}</span><span class="row-s">${esc(g.fecha)}</span></span><span class="amt num">${sinMonto(g) ? '<span class="por-def">Por definir</span>' : dinero(g.monto_soles)}</span></a>`).join('')}</section>
+        ${prog.some(sinMonto) ? alerta('warn', 'Hay gastos sin monto', 'Escribe su monto antes de cerrar (tócalos para abrirlos). Si no, se cerrarán en S/ 0.') : ''}`
         : `<h2 class="paso-t">No hay gastos por pagar</h2><p class="sm muted">Todo lo de ${esc(nm)} está marcado como pagado.</p>`;
     } else if (e.paso === 2) {
       const t = proy[0];

@@ -6,7 +6,7 @@ import * as ops from '../ops.js';
 import { esc, pct, hoy, mesActual, fechaCorta, num, fmt, nombreMes } from '../util.js';
 import { svg } from '../iconos.js';
 import { tituloGrande, tabbar, barra, alerta, dinero, dinero0, avatar, icono, anillo, haceCuanto } from '../ui.js';
-import { lineaSync, fraseSaldo, puntoCat, placaCat, placa, nombre, botonSync } from './comun.js';
+import { lineaSync, fraseSaldo, puntoCat, placaCat, placa, nombre, botonSync, sinMonto, marcarPagado } from './comun.js';
 import { soporte, MOTIVOS } from '../avisos.js';
 import { pendientes } from '../store.js';
 
@@ -96,7 +96,7 @@ export default {
           const cat = L.categoria(S, g.categoria_id);
           return `<div class="row prox">
             <a class="con-placa" href="#/ver/${esc(g.id)}">${atrasado ? placa('vencido', '#B3362A', 36) : placaCat(cat, 36)}<span class="row-m"><span class="row-t">${esc(g.nota || cat?.nombre || 'Gasto')}</span>
-              <span class="row-s${atrasado ? ' bad-t' : ''}">${atrasado ? 'Venció el ' : 'Vence el '}${esc(fechaCorta(g.fecha))} · ${dinero(num(g.monto), { moneda: g.moneda })}</span></span></a>
+              <span class="row-s${atrasado ? ' bad-t' : ''}">${atrasado ? 'Venció el ' : 'Vence el '}${esc(fechaCorta(g.fecha))} · ${sinMonto(g) ? '<span class="por-def">monto por definir</span>' : dinero(num(g.monto), { moneda: g.moneda })}</span></span></a>
             <button class="btn mini pagar-b" data-a="confirmar" data-id="${esc(g.id)}" aria-label="Marcar ${esc(g.nota || cat?.nombre || 'gasto')} como pagado">${icono('check', 16)} Pagado</button>
           </div>`;
         }).join('')}
@@ -138,8 +138,7 @@ export default {
   },
   acciones: {
     confirmar(c, d) {
-      ops.confirmarGasto(d.id);
-      c.avisar('Marcado como pagado', '', { l: 'Deshacer', fn: (c2) => { ops.desconfirmarGasto(d.id); c2.avisar('Vuelve a estar por pagar'); } });
+      marcarPagado(c, d.id); // 3.2: si no tiene monto, primero pregunta cuánto fue
     },
     'no-ofrecer'(c) { c.setMeta({ avisosNoOfrecer: true }); c.render(); }
   }

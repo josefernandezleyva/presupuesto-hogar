@@ -255,7 +255,9 @@ export const limpiarDescripcion = (t) => String(t ?? '').replace(/\s+/g, ' ').tr
 
 function validarBase(f) {
   if (!limpiarDescripcion(f.nota)) falla('Escribe una descripción.', 'nota');
-  if (!(num(f.monto) > 0)) falla('Escribe un monto mayor que cero.', 'monto');
+  // 3.2: un gasto mensual puede guardarse sin monto (S/ 0) como recordatorio, siempre por pagar.
+  const sinMontoOk = f.modalidad === 'Recurrente' && f.estado !== ESTADO.CONF && num(f.monto) === 0;
+  if (!(num(f.monto) > 0) && !sinMontoOk) falla(f.modalidad === 'Recurrente' && num(f.monto) === 0 ? 'Un gasto sin monto queda «por pagar». Escribe el monto para marcarlo como pagado.' : 'Escribe un monto mayor que cero.', 'monto');
   if (!f.categoria_id) falla('Elige una categoría.', 'categoria');
   if (!f.pagado_por) falla('Elige quién pagó.', 'pagador');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(f.fecha || '')) falla('Elige la fecha.', 'fecha');
@@ -667,6 +669,7 @@ export function confirmarGasto(id, montoReal = null, tcManual = null) {
   const g = st.fila('Gastos', id);
   if (!g) falla('No encontré el gasto.');
   if (L.mesCerrado(S(), g.mes)) falla(`${g.mes} está cerrado.`);
+  if (!(num(montoReal) > 0) && !(num(g.monto) > 0)) falla('Escribe cuánto fue para marcarlo como pagado.', 'monto');
   st.guardar(confirmacion(g, montoReal, tcManual));
 }
 
@@ -700,12 +703,51 @@ export function anularGasto(id, alcance = 'este') {
   if (!g) falla('No encontré el gasto.');
   if (L.mesCerrado(s, g.mes)) falla(`${g.mes} está cerrado.`);
   const cambios = [['Gastos', { id, estado: ESTADO.ANUL }]];
+  // 3.2: se devuelve lo que había antes, para «Deshacer».
+  const antes = { gastos: [[id, g.estado]], plan: null };
   if (g.plan_id && alcance === 'siguientes') {
     L.idx(s).gastosPorPlan.get(g.plan_id)?.filter((x) => x.estado === ESTADO.PROG && num(x.nro_cuota) > num(g.nro_cuota) && !L.mesCerrado(s, x.mes))
-      .forEach((x) => cambios.push(['Gastos', { id: x.id, estado: ESTADO.ANUL }]));
+      .forEach((x) => { cambios.push(['Gastos', { id: x.id, estado: ESTADO.ANUL }]); antes.gastos.push([x.id, x.estado]); });
+    const plan = st.fila('Planes', g.plan_id);
+    antes.plan = [g.plan_id, plan?.estado || 'Activo'];
     cambios.push(['Planes', { id: g.plan_id, estado: 'Cancelado' }]);
   }
   st.guardar(cambios);
+  return antes;
+}
+
+/** 3.2 · «Deshacer» de una anulación: cada gasto vuelve a su estado y el plan, si se canceló, se reactiva. */
+export function deshacerAnulacion(antes) {
+  const s = S();
+  const cambios = (antes?.gastos || []).filter(([id]) => { const g = st.fila('Gastos', id); return g && !L.mesCerrado(s, g.mes); })
+    .map(([id, estado]) => ['Gastos', { id, estado: estado === ESTADO.ANUL ? ESTADO.PROG : estado }]);
+  if (antes?.plan) cambios.push(['Planes', { id: antes.plan[0], estado: antes.plan[1] }]);
+  if (cambios.length) st.guardar(cambios);
+}
+
+/**
+ * 3.2 · Restaurar desde «Gastos anulados». `comoQueda` es Confirmado (pagado) o Programado (por pagar).
+ * Con `conPlan`, si el gasto es de un plan cancelado, el plan se reactiva y vuelven también los gastos
+ * anulados que le siguen (como por pagar), en meses abiertos.
+ */
+export function restaurarAnulado(id, comoQueda, { conPlan = false } = {}) {
+  const s = S();
+  const g = st.fila('Gastos', id);
+  if (!g) falla('No encontré el gasto.');
+  if (g.estado !== ESTADO.ANUL) falla('Ese gasto ya no está anulado.');
+  if (L.mesCerrado(s, g.mes)) falla(`${g.mes} está cerrado: el administrador debe reabrirlo para restaurar el gasto.`);
+  if (comoQueda !== ESTADO.CONF && comoQueda !== ESTADO.PROG) falla('Elige cómo queda el gasto.');
+  if (comoQueda === ESTADO.CONF && !(num(g.monto) > 0)) falla('Este gasto no tiene monto: restáuralo como por pagar.');
+  const cambios = [['Gastos', { id, estado: comoQueda }]];
+  let n = 1;
+  if (conPlan && g.plan_id) {
+    const plan = st.fila('Planes', g.plan_id);
+    if (plan?.estado === 'Cancelado') cambios.push(['Planes', { id: plan.id, estado: 'Activo' }]);
+    (L.idx(s).gastosPorPlan.get(g.plan_id) || []).filter((x) => x.estado === ESTADO.ANUL && num(x.nro_cuota) > num(g.nro_cuota) && !L.mesCerrado(s, x.mes))
+      .forEach((x) => { cambios.push(['Gastos', { id: x.id, estado: ESTADO.PROG }]); n++; });
+  }
+  st.guardar(cambios);
+  return n;
 }
 
 /** Deshace una anulación recién hecha (aviso «Deshacer» al deslizar en Gastos): vuelve al estado que tenía. */

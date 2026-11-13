@@ -10,7 +10,7 @@ import { encabezado, segmentado, alerta, avatar, icono } from '../ui.js';
 import * as evid from '../evidencia.js';
 import { aplicarSquircle } from '../squircle.js';
 import { mensajeError } from '../api.js';
-import { puntoCat } from './comun.js';
+import { puntoCat, pedirAnular } from './comun.js';
 
 const np = (v) => { const x = parseMonto(v); return isNaN(x) ? 0 : Math.min(100, Math.max(0, x)); };
 
@@ -195,11 +195,20 @@ function sugerenciasHtml(c) {
   }).join('')}</div>`;
 }
 
+/** 3.2 · Monto 0 permitido solo en gastos mensuales que siguen por pagar (nuevos o una mensualidad por pagar). */
+function permiteSinMonto(c) {
+  const e = c.estado;
+  if (e.modalidad !== 'Recurrente') return false;
+  const g = e.id ? st.fila('Gastos', e.id) : null;
+  return !g || g.estado !== L.ESTADO.CONF || e.pagado === '0';
+}
+
 /** Validación en línea: el primer dato que falta, con el campo que lo marca. */
 function faltante(c) {
   const e = c.estado;
   if (!ops.limpiarDescripcion(e.nota)) return { campo: 'nota', msg: 'Escribe una descripción.' };
-  if (!(parseMonto(e.monto) > 0)) return { campo: 'monto', msg: 'Escribe el monto.' };
+  // 3.2: un gasto mensual puede quedar sin monto (S/ 0) como recordatorio; se completa cuando llega el recibo.
+  if (!(parseMonto(e.monto) > 0) && !permiteSinMonto(c)) return { campo: 'monto', msg: e.modalidad === 'Recurrente' ? 'Escribe el monto. Si aún no lo sabes, déjalo en 0: queda por pagar.' : 'Escribe el monto.' };
   if (!e.categoria_id) return { campo: 'categoria', msg: 'Elige una categoría.' };
   if (e.moneda === 'USD' && !tcVigente(c)) return { campo: 'tc', msg: 'Escribe el tipo de cambio.' };
   return null;
@@ -406,6 +415,8 @@ function doblesHtml(e, nota = '') {
 function pagoInfo(c, plan) {
   const e = c.estado;
   const planNuevo = !e.id && e.modalidad !== 'Unico';
+  // 3.2: sin monto no se puede pagar: queda por pagar aunque esté marcado «Pagado».
+  if (e.modalidad === 'Recurrente' && !(parseMonto(e.monto) > 0)) return '<b>Sin monto queda por pagar</b>: aparece en Inicio › Pendientes y, al marcarlo como pagado, te pedirá cuánto fue.';
   if (e.pagado === '1') {
     return planNuevo ? 'El primer mes queda pagado; los siguientes, por pagar hasta que los marques.'
       : 'Cuenta en lo gastado del mes y en las cuentas entre ustedes (quién pagó y cuánto le toca a cada uno).';
@@ -436,6 +447,7 @@ function refrescar(c, { sugs = true } = {}) {
   const act = presetActivo(c);
   document.querySelectorAll('[data-a="preset"]').forEach((b) => { b.classList.toggle('on', b.dataset.v === act); });
   const g = document.getElementById('btnGuardar'); if (g) g.innerHTML = textoGuardar(c);
+  const sm = document.querySelector('.sin-monto-i'); if (sm) sm.textContent = parseMonto(c.estado.monto) > 0 ? 'Monto de cada mes.' : '¿Aún no sabes el monto? Déjalo en 0: queda como recordatorio «por pagar» cada mes y lo completas cuando llegue el recibo.';
 }
 
 function conEvidencia(c, g) {
@@ -467,6 +479,7 @@ function textoGuardar(c) {
   if (e.id && !e.planOrig && e.modalidad === 'Recurrente') return 'Repetir cada mes' + monto;
   if (e.id) return 'Guardar cambios' + monto;
   if (e.modalidad === 'Cuotas') return 'Programar cuotas' + monto;
+  if (e.modalidad === 'Recurrente' && !(m > 0)) return 'Guardar recordatorio mensual';
   return 'Guardar' + monto;
 }
 
@@ -539,6 +552,7 @@ const pantalla = {
           <input id="monto" class="monto-i" data-f="monto" data-keep inputmode="decimal" autocomplete="off" enterkeyhint="next" placeholder="0.00" value="${esc(e.monto)}"${invalido(e, 'monto')} ${dis}>
         </div>
         ${e.modalidad === 'Cuotas' && !plan ? '<span class="xs muted">Monto total: se reparte en las cuotas</span>' : ''}
+        ${e.modalidad === 'Recurrente' && !bloqueado ? `<span class="xs muted sin-monto-i">${parseMonto(e.monto) > 0 ? 'Monto de cada mes.' : '¿Aún no sabes el monto? Déjalo en 0: queda como recordatorio «por pagar» cada mes y lo completas cuando llegue el recibo.'}</span>` : ''}
       </section>
       ${errorDe(e, 'monto')}
       <div id="tcbox">${tcHtml(c)}</div>
@@ -807,8 +821,10 @@ const pantalla = {
         pcts, repHogar: e.rep === 'hogar', modalidad: e.modalidad,
         nroCuotas: e.nroCuotas, mesInicio: e.mesInicio, montoCuota: parseMonto(e.montoCuota) || 0,
         duracion: e.sinFin === '1' ? 0 : num(e.durN), mesesDobles: e.dobles,
-        estado: e.pagado === '1' ? L.ESTADO.CONF : L.ESTADO.PROG
+        // 3.2: sin monto, siempre queda por pagar (no se puede pagar «nada»).
+        estado: e.pagado === '1' && monto > 0 ? L.ESTADO.CONF : L.ESTADO.PROG
       };
+      if (!(monto > 0)) e.pagado = '0';
       const g = e.id ? st.fila('Gastos', e.id) : null;
       const cat = L.categoria(c.S, e.categoria_id);
       // Aviso de gasto repetido: mismo día, categoría, monto y moneda.
@@ -855,7 +871,7 @@ const pantalla = {
         else if (e.evQuitar && e.id) evid.quitar(e.id);
         const n = Math.floor(num(e.nroCuotas));
         const texto = e.id ? (cambiosPlan?.terminar ? 'Listo: deja de repetirse después de este mes' : e.pagado !== e.pagadoOrig ? (e.pagado === '1' ? 'Marcado como pagado' : 'Marcado como por pagar') : 'Cambios guardados')
-          : e.modalidad === 'Cuotas' ? `Se programaron ${n} cuotas` : e.modalidad === 'Recurrente' ? 'Gasto mensual programado' : e.pagado === '1' ? 'Gasto guardado como pagado' : 'Guardado como por pagar: te lo recordamos en Inicio';
+          : e.modalidad === 'Cuotas' ? `Se programaron ${n} cuotas` : e.modalidad === 'Recurrente' ? (monto > 0 ? 'Gasto mensual programado' : 'Recordatorio mensual sin monto: complétalo cuando llegue el recibo') : e.pagado === '1' ? 'Gasto guardado como pagado' : 'Guardado como por pagar: te lo recordamos en Inicio';
         terminar(texto, e.id ? null : id);
       };
       const cambioDelGasto = g && (Math.abs(monto - num(g.monto)) > 0.004 || g.categoria_id !== e.categoria_id || g.pagado_por !== e.pagado_por
@@ -876,18 +892,8 @@ const pantalla = {
       }
       hacer('este');
     },
-    anular(c) {
-      const g = st.fila('Gastos', c.estado.id);
-      const fin = (alcance) => { ops.anularGasto(g.id, alcance); c.volver('gastos'); c.avisar('Gasto anulado'); };
-      if (g.plan_id) {
-        c.preguntar({ titulo: 'Anular gasto', texto: 'Es parte de un plan. ¿Anulas solo este o también los programados que siguen?', botones: [
-          { l: 'Solo este', estilo: 'sec', fn: () => fin('este') },
-          { l: 'Este y los siguientes', estilo: 'danger', fn: () => fin('siguientes') }
-        ] });
-      } else {
-        c.preguntar({ titulo: 'Anular gasto', texto: 'Deja de contar en los totales, pero queda en la hoja como anulado.', botones: [{ l: 'Anular', estilo: 'danger', fn: () => fin('este') }] });
-      }
-    }
+    // 3.2: misma confirmación que en el resto de la app; al anular vuelve a Gastos.
+    anular(c) { pedirAnular(c, c.estado.id, { despues: (c2) => c2.volver('gastos') }); }
   }
 };
 
