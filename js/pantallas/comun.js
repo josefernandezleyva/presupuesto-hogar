@@ -153,9 +153,10 @@ export function confirmarDistribucion(c, ops, mes, pcts, { siempre = false, alGu
   const { S } = c;
   const posteriores = ops.distribucionesPosteriores(mes);
   const guardar = (c2) => {
-    ops.guardarParticipacion(mes, pcts);
+    const n = ops.guardarParticipacion(mes, pcts);
     if (alGuardar) alGuardar(c2);
-    c2.avisar(`Participación ${L.barrasReparto(S, pcts)} desde ${nombreMes(mes).toLowerCase()}`);
+    // 3.3: se dice cuántos mensuales y cuotas por pagar tomaron la nueva participación.
+    c2.avisar(`Participación ${L.barrasReparto(S, pcts)} desde ${nombreMes(mes).toLowerCase()}${n ? ` · ${n} ${n === 1 ? 'gasto programado actualizado' : 'gastos programados actualizados'}` : ''}`);
   };
   if (!siempre && !posteriores.length) { guardar(c); return; }
   const antes = L.participacion(S, mes);

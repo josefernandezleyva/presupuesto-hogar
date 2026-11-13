@@ -4,9 +4,12 @@
 import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import * as st from '../store.js';
-import { esc, num, fmt, fechaCorta, nombreMes } from '../util.js';
+import { esc, num, fmt, fechaCorta, nombreMes, sumarMeses } from '../util.js';
 import { encabezado, avatar, icono, vacio } from '../ui.js';
 import { placaCat, placa, sinMonto, montoTxt, marcarPagado, pedirAnular, pedirRestaurar } from './comun.js';
+
+/** 3.3 · ¿El gasto mensual sigue después de este mes? (sin fin o con un último mes posterior). */
+const terminaDespues = (plan, g) => !num(plan.duracion_meses) || sumarMeses(plan.mes_inicio, num(plan.duracion_meses) - 1) > g.mes;
 
 const corto = (p) => esc(p?.alias || String(p?.nombre || '').split(' ')[0] || '');
 
@@ -60,8 +63,9 @@ export default {
         ${plan ? `<a class="card det-plan" href="${plan.modalidad === 'Cuotas' ? '#/plan/' + esc(plan.id) : '#/gasto/' + esc(g.id)}">
           <span class="split vc"><span class="b">${plan.modalidad === 'Cuotas' ? `Cuota ${esc(g.nro_cuota)} de ${esc(plan.nro_cuotas)}` : 'Gasto mensual'}</span><span class="link sm">${plan.modalidad === 'Cuotas' ? 'Ver y ajustar el plan' : 'Ajustar la repetición'} ${icono('adelante', 14)}</span></span>
           ${plan.modalidad === 'Cuotas' ? `<span class="plan-segs" aria-label="${prog.confirmadas} de ${prog.total} cuotas pagadas">${Array.from({ length: prog.total }, (_, i) => `<span class="${i < prog.confirmadas ? 'pag' : ''}"></span>`).join('')}</span>
-          <span class="xs muted">${prog.confirmadas} de ${prog.total} pagadas · total ${esc(fmt(plan.monto_total, { moneda: plan.moneda }))}</span>` : `<span class="xs muted">${esc(plan.descripcion)} · cada mes${plan.duracion_meses ? ` por ${esc(plan.duracion_meses)} meses` : ', sin fin'}</span>`}
-        </a>` : ''}
+          <span class="xs muted">${prog.confirmadas} de ${prog.total} pagadas · total ${esc(fmt(plan.monto_total, { moneda: plan.moneda }))}</span>` : `<span class="xs muted">${esc(plan.descripcion)} · ${num(plan.dia) >= 31 ? 'a fin de mes' : `el ${esc(String(num(plan.dia) || Number(g.fecha.slice(8, 10))))} de cada mes`}${num(plan.duracion_meses) ? `, hasta ${esc(nombreMes(sumarMeses(plan.mes_inicio, num(plan.duracion_meses) - 1)).toLowerCase())}` : ', sin fin'}</span>`}
+        </a>
+        ${plan.modalidad === 'Recurrente' && plan.estado !== 'Cancelado' && !anulado && !cerrado && terminaDespues(plan, g) ? `<button type="button" class="btn sec det-terminar" data-a="terminar" data-id="${esc(g.id)}">Terminar en ${esc(nombreMes(g.mes, { anio: false }).toLowerCase())}</button>` : ''}` : ''}
 
         ${g.evidencia_url || g.evidencia_id ? `<a class="card det-foto" href="${esc(g.evidencia_url || '#/gasto/' + g.id)}" ${g.evidencia_url ? 'target="_blank" rel="noopener"' : ''}>${icono('foto', 22)}<span class="grow b">Ver la foto del comprobante</span>${icono('adelante', 18)}</a>`
           : !anulado && !cerrado ? `<a class="card det-foto" href="#/gasto/${esc(g.id)}">${icono('foto', 22)}<span class="grow b">Agregar foto del comprobante</span>${icono('adelante', 18)}</a>` : ''}
@@ -83,6 +87,26 @@ export default {
         c.avisar('Vuelve a estar por pagar', '', { l: 'Deshacer', fn: (c2) => { ops.confirmarGasto(d.id); c2.avisar('Marcado como pagado'); } });
       },
       restaurar(c, d) { pedirRestaurar(c, d.id); },
+      // 3.3: terminar un gasto mensual en este mes (por ejemplo, en julio): este mes queda y se anulan los siguientes.
+      terminar(c, d) {
+        const g = st.fila('Gastos', d.id);
+        const plan = g && st.fila('Planes', g.plan_id);
+        if (!plan) return;
+        const siguen = (L.idx(c.S).gastosPorPlan.get(plan.id) || []).filter((x) => x.estado === L.ESTADO.PROG && x.mes > g.mes && !L.mesCerrado(c.S, x.mes));
+        const mes = nombreMes(g.mes).toLowerCase();
+        c.preguntar({
+          titulo: `¿Terminar en ${mes}?`,
+          html: `<p class="sm">«${esc(plan.descripcion || g.nota || 'Gasto mensual')}» se repite por última vez en <b>${esc(mes)}</b>. Este mes se mantiene${g.estado === L.ESTADO.PROG ? ' (por pagar)' : ''}.</p>
+            <p class="sm">${siguen.length ? `Se anulan ${siguen.length === 1 ? 'el mes programado que sigue' : `los ${siguen.length} meses programados que siguen`} (${esc(nombreMes(siguen[0].mes, { anio: false }).toLowerCase())}${siguen.length > 1 ? ` a ${esc(nombreMes(siguen[siguen.length - 1].mes, { anio: false }).toLowerCase())}` : ''}).` : 'No hay meses programados después.'}</p>
+            <p class="xs muted">Si cambias de idea, edita el gasto y elige «Sin fin»: los meses vuelven.</p>`,
+          botones: [{ l: `Sí, terminar en ${nombreMes(g.mes, { anio: false }).toLowerCase()}`, estilo: 'danger', fn: (c2) => {
+            const antes = { duracion: num(plan.duracion_meses) };
+            ops.actualizarPlan(plan.id, { terminar: true }, g.mes);
+            c2.avisar(`Termina en ${mes}`, '', { l: 'Deshacer', fn: (c3) => { ops.actualizarPlan(plan.id, { duracion: antes.duracion }, g.mes); c3.avisar('Vuelve a repetirse'); } });
+          } }],
+          cancelar: 'No, que siga'
+        });
+      },
       anular(c, d) { pedirAnular(c, d.id); }
     }
   }

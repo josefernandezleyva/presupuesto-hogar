@@ -49,7 +49,7 @@ const menu = {
         ${(() => { const n = S.Gastos.filter((g) => g.estado === L.ESTADO.ANUL).length; return fila({ izq: placa('anulado', '#9B2C1F', 34), titulo: 'Gastos anulados', sub: n ? `${n} para revisar o restaurar` : 'Ninguno por ahora', der: flecha, href: '#/anulados' }); })()}
         ${fila({ izq: placa(c.sync.error ? 'sinConexion' : 'nubeOk', c.sync.error ? '#B26B00' : 'var(--accent)', 34), titulo: 'Ajustes y sincronización', sub: lineaSync(c).replace(/<[^>]+>/g, ''), der: flecha, href: '#/ajustes' })}
       </section>
-      <p class="xs muted center">Presupuesto del Hogar · versión 3.2</p>
+      <p class="xs muted center">Presupuesto del Hogar · versión 3.3</p>
     </main>`;
   }
 };
@@ -226,7 +226,7 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 3.2${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
+      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 3.3${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
       <p class="xs muted center">Copia en este celular: ${st.infoCopia().gastos} ${st.infoCopia().gastos === 1 ? 'gasto' : 'gastos'}, en ${esc(st.infoCopia().donde)}</p>
     </main>`;
   },

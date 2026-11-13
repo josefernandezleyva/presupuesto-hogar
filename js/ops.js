@@ -207,12 +207,14 @@ export function guardarParticipacion(mes, pcts) {
   // Los programados de planes que siguen el reparto del hogar toman los nuevos porcentajes.
   const s = S();
   const otros = [];
+  let n = 0;
   s.Gastos.filter((g) => g.estado === ESTADO.PROG && g.mes >= mes && g.plan_id && !L.mesCerrado(s, g.mes))
     .forEach((g) => {
       const plan = L.idx(s).plan.get(g.plan_id);
-      if (plan && !plan.reparto) otros.push(...filasReparto(g, L.participacion(s, g.mes)));
+      if (plan && !plan.reparto) { otros.push(...filasReparto(g, L.participacion(s, g.mes))); n++; }
     });
   if (otros.length) st.guardar(otros);
+  return n; // 3.3: cuántos programados (mensuales y cuotas) tomaron la nueva participación
 }
 
 export function guardarTipoCambio(mes, valor) {
@@ -491,12 +493,17 @@ function gastoDePlan(plan, k, mes, monto, pcts, estado = ESTADO.PROG) {
   return [['Gastos', g], ...filasReparto(g, pcts || L.participacion(s, mes))];
 }
 
+/** 3.3 · Día de cada mes de un plan: 1 a 31 (31 = fin de mes). Otro valor: ninguno. */
+export const diaValido = (d) => { const n = Math.floor(num(d)); return n >= 1 && n <= 31 ? n : 0; };
+
 function planBase(f, modalidad) {
   const s = S();
   return {
     id: uuid(), modalidad, descripcion: limpiarDescripcion(f.nota) || L.categoria(s, f.categoria_id)?.nombre || '',
     moneda: f.moneda, categoria_id: f.categoria_id, pagado_por: f.pagado_por,
-    tipo: f.tipo || L.categoria(s, f.categoria_id)?.tipo || 'Variable', dia: Number(f.fecha.slice(8, 10)), estado: 'Activo',
+    // 3.3: día de cada mes. Por defecto el de la fecha; en los mensuales se puede elegir otro o fin de mes (31:
+    // en meses más cortos cae en su último día: 30 de noviembre, 28 o 29 de febrero).
+    tipo: f.tipo || L.categoria(s, f.categoria_id)?.tipo || 'Variable', dia: diaValido(f.dia) || Number(f.fecha.slice(8, 10)), estado: 'Activo',
     meses_dobles: L.mesesDobles(f.mesesDobles).join(',')
   };
 }
@@ -569,7 +576,7 @@ export function repararGenerados() {
     if (plan.estado === 'Cancelado') { anular.push(['Gastos', { id: g.id, estado: ESTADO.ANUL }]); return; }
     if (plan.modalidad !== 'Recurrente') return;
     const esperado = r2(num(plan.monto_cuota) * L.factorMes(plan, g.mes));
-    if (num(g.monto) !== esperado || g.categoria_id !== plan.categoria_id || g.pagado_por !== plan.pagado_por || g.moneda !== plan.moneda) {
+    if (num(g.monto) !== esperado || g.categoria_id !== plan.categoria_id || g.pagado_por !== plan.pagado_por || g.moneda !== plan.moneda || g.fecha !== L.fechaEnMes(g.mes, plan.dia)) {
       alinear.push(...gastoDePlan(plan, num(g.nro_cuota) - 1, g.mes, esperado, plan.reparto ? JSON.parse(plan.reparto) : null));
     }
   });
@@ -607,12 +614,18 @@ export function convertirEnPlan(id, f) {
  * Recalcula los gastos programados desde ese mes (los de meses cerrados no se tocan).
  * `excluir`: id de un gasto cuyo monto la persona acaba de escribir a mano.
  */
-export function actualizarPlan(planId, { duracion, mesesDobles, terminar = false } = {}, desde, { excluir = null } = {}) {
+export function actualizarPlan(planId, { duracion, mesesDobles, terminar = false, dia } = {}, desde, { excluir = null } = {}) {
   const s = S();
   const plan = st.fila('Planes', planId);
   if (!plan) falla('No encontré el plan.');
+  if (L.mesCerrado(s, desde)) falla(`${desde} está cerrado.`);
   const cambio = { id: plan.id };
   if (mesesDobles !== undefined) cambio.meses_dobles = L.mesesDobles(mesesDobles).join(',');
+  if (dia !== undefined) {
+    if (!diaValido(dia)) falla('Elige un día entre 1 y 31, o fin de mes.');
+    cambio.dia = diaValido(dia);
+  }
+  const finAntes = num(plan.duracion_meses) > 0 ? sumarMeses(plan.mes_inicio, num(plan.duracion_meses) - 1) : null;
   if (plan.modalidad === 'Recurrente') {
     const minimo = difMeses(plan.mes_inicio, desde) + 1;
     if (terminar) cambio.duracion_meses = minimo;
@@ -636,10 +649,19 @@ export function actualizarPlan(planId, { duracion, mesesDobles, terminar = false
   if (plan.modalidad === 'Recurrente') {
     const dur = num(nuevo.duracion_meses);
     const fin = dur > 0 ? sumarMeses(plan.mes_inicio, dur - 1) : null;
-    prog.forEach((g) => {
+    // 3.3: si antes terminaba y ahora dura más (o sin fin), vuelven los meses que se habían anulado al terminarlo.
+    const vuelven = finAntes && (!fin || fin > finAntes)
+      ? (L.idx(s).gastosPorPlan.get(plan.id) || []).filter((g) => g.estado === ESTADO.ANUL && g.mes > finAntes && (!fin || g.mes <= fin) && g.mes >= desde && !L.mesCerrado(s, g.mes))
+      : [];
+    [...prog, ...vuelven].forEach((g) => {
       if (fin && g.mes > fin) { cambios.push(['Gastos', { id: g.id, estado: ESTADO.ANUL }]); return; }
       const m = r2(num(plan.monto_cuota) * L.factorMes(nuevo, g.mes));
-      if (m !== num(g.monto)) rehacer(g, m);
+      const fecha = L.fechaEnMes(g.mes, nuevo.dia);
+      if (g.estado === ESTADO.ANUL || m !== num(g.monto) || fecha !== g.fecha) {
+        const tc = num(g.tipo_cambio) || 1;
+        const otro = { ...g, monto: m, monto_soles: r2(m * tc), fecha, estado: ESTADO.PROG };
+        cambios.push(['Gastos', otro], ...filasReparto(otro, L.pctsDeGasto(s, g)));
+      }
     });
   } else if (prog.length) {
     // Cuotas: lo que falta pagar se reparte de nuevo, con las cuotas dobles en sus meses.

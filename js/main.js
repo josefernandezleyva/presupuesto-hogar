@@ -386,19 +386,18 @@ st.cargarCopia().catch(() => 'local').then(async (r) => {
   mostrarNovedadesVersion();
 });
 
-/** Una sola vez: qué cambió en la 3.2 (solo a quien ya usaba la app). */
+/** Una sola vez: qué cambió en la 3.3 (solo a quien ya usaba la app). */
 function mostrarNovedadesVersion() {
   const meta = st.getMeta();
-  if (meta.visto32) return;
-  st.setMeta({ visto20: true, visto30: true, visto31: true, visto32: true });
+  if (meta.visto33) return;
+  st.setMeta({ visto20: true, visto30: true, visto31: true, visto32: true, visto33: true });
   if (puerta() || (!meta.ultimoSync && !meta.demo)) return; // instalación nueva: no hay nada que comparar
   preguntar({
-    titulo: 'Novedades de la versión 3.2',
+    titulo: 'Novedades de la versión 3.3',
     html: `<ul class="nuevo20">
-      <li><b>Anular siempre pregunta</b> antes, también al deslizar en Gastos.</li>
-      <li>Nuevo <b>Gastos anulados</b> (Hogar y ajustes, o al final de Gastos): revísalos y <b>restaura</b> los que fueron un error, como pagados o por pagar.</li>
-      <li>Un gasto <b>mensual sin monto</b> (S/ 0) sirve de recordatorio, por ejemplo el mantenimiento del edificio. Al marcarlo pagado te pide cuánto fue.</li>
-      <li>La etiqueta «Por pagar» queda siempre en el mismo lugar y los íconos se ven más grandes.</li>
+      <li>Un gasto mensual puede caer <b>el día que elijas</b> o <b>a fin de mes</b> (30 de noviembre, 31 de diciembre, 28 o 29 de febrero).</li>
+      <li>Si cambias el reparto de un mensual en un mes, eliges <b>«ese mes y los siguientes»</b>, aunque ya esté pagado. Los meses anteriores no cambian.</li>
+      <li>Para <b>terminar</b> un gasto mensual: en su detalle, «Terminar en julio» (o el mes que sea). Si cambias de idea, vuelve a ponerlo «Sin fin».</li>
     </ul>`,
     botones: [{ l: 'Entendido', estilo: 'pri' }],
     cancelar: 'Cerrar'

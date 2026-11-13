@@ -31,7 +31,7 @@ function iniciarNuevo(c) {
     // 2.1: un gasto nuevo siempre empieza con la fecha de hoy (aunque se esté mirando otro mes); se cambia en «Fecha».
     fecha: /^\d{4}-\d{2}-\d{2}$/.test(c.query.fecha || '') ? c.query.fecha : hoy(), nota: '', tipo: '',
     rep: 'hogar', modalidad: 'Unico', nroCuotas: 3, mesInicio: '', montoCuota: '', sinFin: '1', durN: '12', dobles: [],
-    panel: null
+    diaModo: 'fecha', diaN: '', panel: null
   });
   e.mesInicio = mesDe(e.fecha);
   e.pagado = e.fecha > hoy() ? '0' : '1';
@@ -55,9 +55,12 @@ function iniciarEdicion(c, g) {
     categoria_id: g.categoria_id, pagado_por: g.pagado_por, fecha: g.fecha, nota: notaGuardada || propuesta, notaPropuesta: !!propuesta, tipo: g.tipo || '', falta: null,
     modalidad: plan ? plan.modalidad : 'Unico', nroCuotas: 3, mesInicio: g.mes, montoCuota: '',
     sinFin: plan && num(plan.duracion_meses) ? '0' : '1', durN: String(plan && num(plan.duracion_meses) ? plan.duracion_meses : 12),
-    dobles: plan ? L.mesesDobles(plan) : [], repite: '1', panel: null
+    dobles: plan ? L.mesesDobles(plan) : [], repite: '1', panel: null,
+    // 3.3: día de cada mes (31 = fin de mes) y último mes del gasto mensual.
+    diaModo: plan && num(plan.dia) >= 31 ? 'fin' : 'otro', diaN: String(plan ? (num(plan.dia) || Number(g.fecha.slice(8, 10))) : ''),
+    planIni: plan?.mes_inicio || '', hasta: plan && num(plan.duracion_meses) ? sumarMeses(plan.mes_inicio, num(plan.duracion_meses) - 1) : sumarMeses(g.mes, 5)
   });
-  e.planOrig = plan ? { sinFin: e.sinFin, durN: e.durN, dobles: e.dobles.join(',') } : null;
+  e.planOrig = plan ? { sinFin: e.sinFin, durN: e.durN, hasta: e.hasta, dobles: e.dobles.join(','), dia: num(plan.dia) || Number(g.fecha.slice(8, 10)) } : null;
   e.pagado = g.estado === L.ESTADO.CONF ? '1' : '0';
   e.pagadoOrig = e.pagado;
   e.pagadoManual = true;
@@ -66,6 +69,9 @@ function iniciarEdicion(c, g) {
   const igual = (a, b) => L.personas(S, { todas: true }).every((p) => num(a[p.id]) === num(b[p.id]));
   e.rep = igual(pcts, hogar) ? 'hogar' : 'medida';
   cargarPcts(c, pcts);
+  // 3.3: para saber si cambió el reparto al guardar.
+  e.repOrig = e.rep;
+  e.pctsOrig = { ...pcts };
 }
 
 function moverAMes(c, m) {
@@ -100,9 +106,39 @@ function cambiosDePlan(e) {
   if (e.dobles.join(',') !== e.planOrig.dobles) out.mesesDobles = e.dobles;
   if (e.modalidad === 'Recurrente') {
     if (e.repite === '0') out.terminar = true;
-    else if (e.sinFin !== e.planOrig.sinFin || (e.sinFin === '0' && e.durN !== e.planOrig.durN)) out.duracion = e.sinFin === '1' ? 0 : num(e.durN);
+    // 3.3: al editar, la duración se elige con el último mes («Hasta»).
+    else if (e.sinFin !== e.planOrig.sinFin || (e.sinFin === '0' && e.hasta !== e.planOrig.hasta)) out.duracion = e.sinFin === '1' ? 0 : difMeses(e.planIni, e.hasta) + 1;
+    if (diaEfectivo(e) !== e.planOrig.dia) out.dia = diaEfectivo(e);
   }
   return Object.keys(out).length ? out : null;
+}
+
+/** 3.3 · Día de cada mes elegido para un gasto mensual (31 = fin de mes). */
+function diaEfectivo(e) {
+  if (e.diaModo === 'fin') return 31;
+  if (e.diaModo === 'otro') return Math.min(31, Math.max(1, Math.floor(num(e.diaN)) || Number(e.fecha.slice(8, 10))));
+  return Number(e.fecha.slice(8, 10));
+}
+
+/** 3.3 · Las próximas fechas de un mensual, para ver cómo cae el día (30 nov, 31 dic, 28 feb…). */
+function proximasFechas(e, desde, n = 4) {
+  const d = diaEfectivo(e);
+  return Array.from({ length: n }, (_, i) => fechaCorta(L.fechaEnMes(sumarMeses(desde, i), d))).join(' · ');
+}
+
+/** 3.3 · Selector del día de cada mes: el de la fecha, otro día o fin de mes. */
+function diaHtml(e, edit) {
+  const dFecha = Number(e.fecha.slice(8, 10));
+  const ops3 = edit ? [{ v: 'otro', l: 'Un día fijo' }, { v: 'fin', l: 'Fin de mes' }] : [{ v: 'fecha', l: `El ${dFecha}` }, { v: 'otro', l: 'Otro día' }, { v: 'fin', l: 'Fin de mes' }];
+  return `<div class="lbl">Día de cada mes</div>${segmentado('diaModo', ops3, e.diaModo, 'Día de cada mes')}
+    ${e.diaModo === 'otro' ? `<label class="frow"><span class="muted">Día (1 a 31)</span><input class="inl" data-f="diaN" inputmode="numeric" enterkeyhint="done" value="${esc(e.diaN || dFecha)}" aria-label="Día de cada mes"></label>` : ''}
+    <p class="xs muted" id="diaInfo">${diaInfo(e)}</p>`;
+}
+
+function diaInfo(e) {
+  const d = diaEfectivo(e);
+  const desde = e.planIni && e.id ? mesDe(e.fecha) : mesDe(e.fecha);
+  return `${d >= 31 ? 'El último día de cada mes' : d >= 29 ? `El ${d} (en meses más cortos, su último día)` : `El ${d} de cada mes`}. Próximas fechas: ${esc(proximasFechas(e, desde))}.`;
 }
 
 /* ------------------------------------------------------------ Cálculos --- */
@@ -396,9 +432,10 @@ function cuotasHtml(c) {
 function recurrenteHtml(c) {
   const e = c.estado;
   const m = parseMonto(e.monto) || 0;
-  const dia = Number(e.fecha.slice(8, 10));
+  const dia = diaEfectivo(e);
   const doble = e.dobles.length && m > 0 ? ` y ${esc(fmt(r2(m * 2), { moneda: e.moneda }))} en ${esc(doblesTexto(e))}` : '';
-  return `<p class="muted xs">Queda programado cada mes, el día ${dia}${m > 0 ? `: ${esc(fmt(m, { moneda: e.moneda }))}${doble}` : ''}. Cada mes queda por pagar hasta que lo marques como pagado.</p>`;
+  const ultimo = e.sinFin === '0' && num(e.durN) > 0 ? ` El último mes es ${esc(nombreMes(sumarMeses(mesDe(e.fecha), num(e.durN) - 1)).toLowerCase())}.` : '';
+  return `<p class="muted xs">Queda programado ${dia >= 31 ? 'el último día de cada mes' : `cada mes, el día ${dia}`}${m > 0 ? `: ${esc(fmt(m, { moneda: e.moneda }))}${doble}` : ''}.${ultimo} Cada mes queda por pagar hasta que lo marques como pagado.</p>`;
 }
 
 /** Selector de los meses en que se paga doble (por ejemplo junio y diciembre). */
@@ -447,6 +484,7 @@ function refrescar(c, { sugs = true } = {}) {
   const act = presetActivo(c);
   document.querySelectorAll('[data-a="preset"]').forEach((b) => { b.classList.toggle('on', b.dataset.v === act); });
   const g = document.getElementById('btnGuardar'); if (g) g.innerHTML = textoGuardar(c);
+  set('diaInfo', diaInfo(c.estado));
   const sm = document.querySelector('.sin-monto-i'); if (sm) sm.textContent = parseMonto(c.estado.monto) > 0 ? 'Monto de cada mes.' : '¿Aún no sabes el monto? Déjalo en 0: queda como recordatorio «por pagar» cada mes y lo completas cuando llegue el recibo.';
 }
 
@@ -821,6 +859,7 @@ const pantalla = {
         pcts, repHogar: e.rep === 'hogar', modalidad: e.modalidad,
         nroCuotas: e.nroCuotas, mesInicio: e.mesInicio, montoCuota: parseMonto(e.montoCuota) || 0,
         duracion: e.sinFin === '1' ? 0 : num(e.durN), mesesDobles: e.dobles,
+        dia: e.modalidad === 'Recurrente' && !e.planOrig ? diaEfectivo(e) : undefined,
         // 3.2: sin monto, siempre queda por pagar (no se puede pagar «nada»).
         estado: e.pagado === '1' && monto > 0 ? L.ESTADO.CONF : L.ESTADO.PROG
       };
@@ -860,6 +899,9 @@ const pantalla = {
       }
 
       const cambiosPlan = cambiosDePlan(e);
+      if (e.planOrig && e.modalidad === 'Recurrente' && e.repite !== '0' && e.sinFin === '0' && (!/^\d{4}-\d{2}$/.test(e.hasta || '') || e.hasta < mesDe(e.fecha))) {
+        throw new ops.ErrorApp(`El último mes no puede ser anterior a ${nombreMes(mesDe(e.fecha)).toLowerCase()}. Para terminar aquí, elige «Termina en ${nombreMes(mesDe(e.fecha), { anio: false }).toLowerCase()}».`);
+      }
       const hacer = (alcance) => {
         const id = ops.guardarGasto(f, { id: e.id || null, alcance });
         // 2.0: un gasto nuevo avisa a la otra persona (viaja con la sincronización).
@@ -875,19 +917,26 @@ const pantalla = {
         terminar(texto, e.id ? null : id);
       };
       const cambioDelGasto = g && (Math.abs(monto - num(g.monto)) > 0.004 || g.categoria_id !== e.categoria_id || g.pagado_por !== e.pagado_por
-        || g.moneda !== e.moneda || (g.nota || '') !== f.nota || e.rep !== 'hogar');
+        || g.moneda !== e.moneda || (g.nota || '') !== f.nota
+        || e.rep !== e.repOrig || (e.rep !== 'hogar' && L.personas(c.S).some((p) => num(e['pct_' + p.id]) !== num(e.pctsOrig?.[p.id]))));
       // 2.5: en cuotas, al cambiar el monto de una se puede mantener el total repartiendo la diferencia.
       const planG = g?.plan_id ? st.fila('Planes', g.plan_id) : null;
       const cambioMonto = g && Math.abs(monto - num(g.monto)) > 0.004 && g.moneda === e.moneda;
       const compensable = planG?.modalidad === 'Cuotas' && cambioMonto && !ops.previaCuota(g.id, monto, 'compensar').error;
-      if (g?.plan_id && (g.estado === L.ESTADO.PROG || compensable) && cambioDelGasto) {
+      // 3.3: también en un mes ya pagado se puede aplicar el cambio (por ejemplo, un reparto nuevo) a los que siguen.
+      const haySiguientes = !!g?.plan_id && (L.idx(c.S).gastosPorPlan.get(g.plan_id) || []).some((x) => x.estado === L.ESTADO.PROG && num(x.nro_cuota) > num(g.nro_cuota) && !L.mesCerrado(c.S, x.mes));
+      if (g?.plan_id && (g.estado === L.ESTADO.PROG || compensable || haySiguientes) && cambioDelGasto) {
         const botones = planG?.modalidad === 'Cuotas' && cambioMonto
           ? [{ l: 'Solo esta cuota (cambia el total)', estilo: 'sec', fn: () => hacer('este') },
             ...(compensable ? [{ l: 'Mantener el total (repartir la diferencia en las que siguen)', estilo: 'pri', fn: () => { ops.ajustarCuota(g.id, monto, 'compensar'); hacer('este'); } }] : []),
             ...(g.estado === L.ESTADO.PROG ? [{ l: 'Mismo monto en esta y las siguientes', estilo: 'sec', fn: () => hacer('siguientes') }] : [])]
-          : [{ l: 'Solo a este', estilo: 'sec', fn: () => hacer('este') }, { l: 'A este y los siguientes', estilo: 'pri', fn: () => hacer('siguientes') }];
-        c.preguntar({ titulo: '¿A qué gastos aplica el cambio?', texto: planG?.modalidad === 'Cuotas' && cambioMonto
-          ? `La cuota ${g.nro_cuota} pasa de ${fmt(num(g.monto), { moneda: g.moneda })} a ${fmt(monto, { moneda: g.moneda })}.` : 'Este gasto es parte de un plan de cuotas o mensual.', botones });
+          : [{ l: `Solo ${nombreMes(g.mes, { anio: false }).toLowerCase()}`, estilo: 'sec', fn: () => hacer('este') },
+            ...(haySiguientes || g.estado === L.ESTADO.PROG ? [{ l: `${nombreMes(g.mes, { anio: false })} y los meses siguientes`, estilo: 'pri', fn: () => hacer('siguientes') }] : [])];
+        const repCambio = e.repOrig !== undefined && (e.rep !== e.repOrig || L.personas(c.S).some((p) => num(e['pct_' + p.id]) !== num(e.pctsOrig?.[p.id])));
+        c.preguntar({ titulo: '¿A qué meses aplica el cambio?', texto: planG?.modalidad === 'Cuotas' && cambioMonto
+          ? `La cuota ${g.nro_cuota} pasa de ${fmt(num(g.monto), { moneda: g.moneda })} a ${fmt(monto, { moneda: g.moneda })}.`
+          : repCambio ? `Cambiaste el reparto. Con «${nombreMes(g.mes, { anio: false })} y los meses siguientes», los meses anteriores conservan su reparto y los que vienen usan el nuevo.`
+            : 'Este gasto es parte de un plan de cuotas o mensual. Los meses anteriores no cambian.', botones });
         return;
       }
       hacer('este');
@@ -905,11 +954,15 @@ function panelModo(c, g, plan, tipoEf) {
   const tipo = `<div class="frow"><span class="muted">Tipo</span>${segmentado('tipo', [{ v: 'Fijo', l: 'Fijo' }, { v: 'Variable', l: 'Variable' }], tipoEf, 'Tipo de gasto')}</div>`;
   if (plan && plan.modalidad === 'Recurrente') {
     const n = difMeses(plan.mes_inicio, g.mes) + 1;
-    return `<p class="sm">Gasto mensual desde ${esc(nombreMes(plan.mes_inicio).toLowerCase())}. Este es el mes ${n}.</p>
-      ${segmentado('repite', [{ v: '1', l: 'Sigue cada mes' }, { v: '0', l: 'Termina este mes' }], e.repite, 'Repetición')}
-      ${e.repite === '0' ? '<p class="xs muted">Se anulan los meses programados que siguen. Este gasto se mantiene.</p>' : `
-        ${segmentado('sinFin', [{ v: '1', l: 'Sin fin' }, { v: '0', l: 'Por meses' }], e.sinFin, 'Duración')}
-        ${e.sinFin === '0' ? `<label class="frow"><span class="muted">Meses en total, desde el inicio</span><input class="inl" data-f="durN" inputmode="numeric" value="${esc(e.durN)}"></label>` : ''}
+    const mesG = nombreMes(g.mes, { anio: false }).toLowerCase();
+    const siguen = (L.idx(c.S).gastosPorPlan.get(plan.id) || []).filter((x) => x.estado === L.ESTADO.PROG && x.mes > g.mes && !L.mesCerrado(c.S, x.mes)).length;
+    return `<p class="sm">Gasto mensual desde ${esc(nombreMes(plan.mes_inicio).toLowerCase())}${num(plan.duracion_meses) ? ` hasta ${esc(nombreMes(sumarMeses(plan.mes_inicio, num(plan.duracion_meses) - 1)).toLowerCase())}` : ', sin fin'}. Este es el mes ${n}.</p>
+      ${segmentado('repite', [{ v: '1', l: 'Sigue cada mes' }, { v: '0', l: `Termina en ${mesG}` }], e.repite, 'Repetición')}
+      ${e.repite === '0' ? `<p class="xs muted">${esc(nombreMes(g.mes))} queda como el último mes. ${siguen ? `Se anulan ${siguen === 1 ? 'el mes programado que sigue' : `los ${siguen} meses programados que siguen`}; si cambias de idea, vuelve a ponerlo «Sin fin» o restáuralos en Gastos anulados.` : 'No hay meses programados después.'}</p>` : `
+        <div class="lbl">¿Hasta cuándo?</div>
+        ${segmentado('sinFin', [{ v: '1', l: 'Sin fin' }, { v: '0', l: 'Hasta un mes' }], e.sinFin, 'Duración')}
+        ${e.sinFin === '0' ? `<label class="frow"><span class="muted">Último mes</span><input type="month" class="inl" data-f="hasta" data-r min="${esc(g.mes)}" value="${esc(e.hasta)}" aria-label="Último mes del gasto mensual"></label>` : ''}
+        ${diaHtml(e, true)}
         ${doblesHtml(e, 'Se aplica desde este mes.')}`}
       <p class="xs muted">Para cambiar el monto de los meses que siguen, cámbialo arriba y elige «A este y los siguientes» al guardar.</p>
       ${tipo}`;
@@ -931,6 +984,8 @@ function panelModo(c, g, plan, tipoEf) {
       ${doblesHtml(e)}
       <div id="cuotas" class="stack-sm">${cuotasHtml(c)}</div>` : ''}
     ${e.modalidad === 'Recurrente' ? `
+      ${diaHtml(e, false)}
+      <div class="lbl">¿Hasta cuándo?</div>
       ${segmentado('sinFin', [{ v: '1', l: 'Sin fin' }, { v: '0', l: 'Por meses' }], e.sinFin, 'Duración')}
       ${e.sinFin === '0' ? `<label class="frow"><span class="muted">Meses</span><input class="inl" data-f="durN" inputmode="numeric" value="${esc(e.durN)}"></label>` : ''}
       ${doblesHtml(e)}
