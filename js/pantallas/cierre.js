@@ -3,10 +3,10 @@
 import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import { esc, fmt, fmt0, nombreMes, sumarMeses, hoy, parseMonto, mesActual } from '../util.js';
-import { tituloGrande, tabbar, avatar, alerta, dinero0, dinero, chips, icono } from '../ui.js';
-import { fraseSaldo, nombre } from './comun.js';
+import { tituloGrande, tabbar, avatar, alerta, dinero0, dinero, chips, icono, encabezado } from '../ui.js';
+import { fraseSaldo, nombre, placa } from './comun.js';
 
-export default {
+const cuentas = {
   vista(c) {
     const { S, mes, estado: e } = c;
     const cerr = L.cierre(S, mes);
@@ -38,20 +38,19 @@ export default {
         ${arrastre.length ? `<div class="xs">Incluye el saldo que viene de ${esc(nombreMes(sumarMeses(mes, -1), { anio: false }).toLowerCase())}: ${arrastre.filter((f) => f.saldo_inicial < 0).map((f) => `${nombre(S, f.persona_id)} arrastra ${esc(fmt(-f.saldo_inicial))}`).join(', ')}.</div>` : ''}
       </section>
 
-      ${filas.map((f) => {
-        const p = L.persona(S, f.persona_id);
-        const etiqueta = f.saldo_final > 0.004 ? 'Le deben' : f.saldo_final < -0.004 ? 'Debe' : 'Al día';
-        return `<section class="card">
-          <div class="split vc">${avatar(p, 36)}<div class="grow"><div class="b">${esc(p.nombre)}</div><div class="xs muted">Participación ${part[p.id] || 0} %</div></div>
-          <div class="right"><div class="xs muted">${etiqueta}</div><div class="mid ${f.saldo_final > 0.004 ? 'ok-t' : ''}">${dinero(Math.abs(f.saldo_final))}</div></div></div>
-          <div class="quad">
-            <div><div class="xs muted">Saldo inicial</div><div class="sm b">${dinero(f.saldo_inicial, { signo: true })}</div></div>
-            <div><div class="xs muted">Pagó</div><div class="sm b">${dinero0(f.pagado)}</div></div>
-            <div><div class="xs muted">Le corresponde</div><div class="sm b">${dinero0(f.corresponde)}</div></div>
-            <div class="right"><div class="xs muted">Pagos</div><div class="sm b">${dinero0(f.liq_pagado - f.liq_recibido, { signo: true })}</div></div>
-          </div>
-        </section>`;
-      }).join('')}
+      <section class="card cuentas-tabla">
+        <div class="ct-f ct-h"><span>${cerrado ? 'Al cierre' : 'Este mes'}</span><span>Pagó</span><span>Le toca</span></div>
+        ${filas.map((f) => {
+          const p = L.persona(S, f.persona_id);
+          const extra = [Math.abs(f.saldo_inicial) > 0.004 ? `saldo anterior ${fmt(f.saldo_inicial, { signo: true })}` : '', Math.abs(f.liq_pagado - f.liq_recibido) > 0.004 ? `pagos ${fmt(f.liq_pagado - f.liq_recibido, { signo: true })}` : ''].filter(Boolean).join(' · ');
+          const etiqueta = f.saldo_final > 0.004 ? `Le deben ${fmt(f.saldo_final)}` : f.saldo_final < -0.004 ? `Debe ${fmt(-f.saldo_final)}` : 'Al día';
+          return `<div class="ct-f">
+            <span class="ct-p">${avatar(p, 30)}<span class="row-m"><span class="b">${esc(p.alias || p.nombre)} · ${part[p.id] || 0} %</span><span class="xs ${f.saldo_final > 0.004 ? 'ok-t' : f.saldo_final < -0.004 ? 'warn-t' : 'muted'}">${esc(etiqueta)}${extra ? ` <span class="muted">· ${esc(extra)}</span>` : ''}</span></span></span>
+            <span class="num">${dinero0(f.pagado)}</span><span class="num">${dinero0(f.corresponde)}</span>
+          </div>`;
+        }).join('')}
+        <p class="xs muted">Cuenta lo pagado. Los gastos por pagar entran al marcarlos como pagados.</p>
+      </section>
 
       ${prog.length && !cerrado ? alerta('warn', `${prog.length} ${prog.length === 1 ? 'gasto por pagar' : 'gastos por pagar'}`,
         `${prog.slice(0, 3).map((g) => `${g.nota || L.categoria(S, g.categoria_id)?.nombre} (${fmt(g.monto_soles)})`).join(', ')}${prog.length > 3 ? '…' : ''}. Al cerrar se marcan como pagados con su monto previsto${proyeccion ? ' y el saldo queda: ' + (proyeccion.length ? proyeccion.map((t) => `${L.persona(S, t.de)?.nombre} debe ${fmt(t.monto)} a ${L.persona(S, t.a)?.nombre}`).join('; ') : 'al día') : ''}.`) : ''}
@@ -77,7 +76,7 @@ export default {
              ${c.admin ? '<button class="btn sec" data-a="reabrir">Reabrir mes</button>' : ''}`
           : c.admin
             ? `<p class="muted sm center">El saldo pendiente pasa como saldo inicial a ${esc(nombreMes(sumarMeses(mes, 1)))}.</p>
-               <button class="btn pri" data-a="cerrar">Cerrar ${esc(nombreMes(mes, { anio: false }).toLowerCase())}</button>`
+               <a class="card fila-cerrar" href="#/cerrar" data-a="cerrar">${placa('cerrado', 'var(--ink)', 40)}<span class="row-m"><span class="row-t">Cerrar ${esc(nombreMes(mes, { anio: false }).toLowerCase())}</span><span class="row-s">Revisa pendientes, salden y bloquea el mes</span></span>${icono('adelante', 18)}</a>`
             : '<p class="muted sm center">Solo el administrador puede cerrar el mes.</p>'}
       </div>
     </main>${tabbar('cierre')}`;
@@ -96,7 +95,8 @@ export default {
     'borrar-liq'(c, d) {
       c.preguntar({ titulo: 'Eliminar pago', texto: 'El saldo vuelve a calcularse sin este pago.', botones: [{ l: 'Eliminar', estilo: 'danger', fn: () => { ops.anularLiquidacion(d.id); c.avisar('Pago eliminado'); } }] });
     },
-    cerrar(c) {
+    cerrar(c) { c.ir('cerrar'); },
+    cerrarYa(c) {
       const mes = c.mes;
       const futuro = mes > mesActual();
       c.preguntar({
@@ -110,3 +110,63 @@ export default {
     }
   }
 };
+
+/* ------------------------------------------- 3.0 · Cerrar el mes en 3 pasos --- */
+// 1 · pendientes por pagar, 2 · saldar (o dejar el saldo para el mes siguiente), 3 · confirmar el cierre.
+// La lógica es la misma de siempre (ops.cerrarMes); solo se guía el paso a paso.
+const cerrarMes = {
+  iniciar(c) { c.estado.paso = 1; },
+  vista(c) {
+    const { S, mes, estado: e } = c;
+    const nm = nombreMes(mes, { anio: false }).toLowerCase();
+    if (!c.admin) return `${encabezado({ titulo: 'Cerrar el mes' })}<main class="pad">${alerta('info', 'Solo el administrador puede cerrar el mes', 'Pídeselo a quien administra el hogar.')}</main>`;
+    if (L.mesCerrado(S, mes) && e.paso < 4) return `${encabezado({ titulo: 'Cerrar el mes' })}<main class="pad">${alerta('ok', nombreMes(mes) + ' ya está cerrado', '')}<a class="btn sec wide" href="#/cierre">Volver a Cuentas</a></main>`;
+    const prog = L.gastosMes(S, mes, [L.ESTADO.PROG]);
+    const S2 = { ...S, Gastos: S.Gastos.map((g) => (g.mes === mes && g.estado === L.ESTADO.PROG ? { ...g, estado: L.ESTADO.CONF } : g)) };
+    const proy = L.transferencias(L.saldosMes(S2, mes));
+    const r = L.resumenMes(S, mes);
+    const pasos = ['Pendientes', 'Saldar', 'Cerrar'];
+    const barra = `<ol class="pasos" aria-label="Pasos">${pasos.map((p, i) => `<li class="${i + 1 <= e.paso ? 'on' : ''}"${i + 1 === e.paso ? ' aria-current="step"' : ''}><span></span>${i + 1} · ${p}</li>`).join('')}</ol>`;
+    let cuerpo = '';
+    if (e.paso === 1) {
+      cuerpo = prog.length ? `<h2 class="paso-t">${prog.length === 1 ? 'Queda 1 gasto por pagar' : `Quedan ${prog.length} gastos por pagar`}</h2>
+        <p class="sm muted">Al cerrar, los que sigan por pagar se marcan como pagados con su monto previsto. Si alguno no se pagó o cambió de monto, ajústalo antes.</p>
+        <section class="card list">${prog.map((g) => `<a class="row" href="#/ver/${esc(g.id)}"><span class="row-m"><span class="row-t">${esc(g.nota || L.categoria(S, g.categoria_id)?.nombre || 'Gasto')}</span><span class="row-s">${esc(g.fecha)}</span></span><span class="amt num">${dinero(g.monto_soles)}</span></a>`).join('')}</section>`
+        : `<h2 class="paso-t">No hay gastos por pagar</h2><p class="sm muted">Todo lo de ${esc(nm)} está marcado como pagado.</p>`;
+    } else if (e.paso === 2) {
+      const t = proy[0];
+      cuerpo = t ? `<h2 class="paso-t">${esc(nombre(S, t.de))} le debe ${esc(fmt(t.monto))} a ${esc(nombre(S, t.a))}</h2>
+        <p class="sm muted">${prog.length ? 'Incluye los gastos que se marcarán como pagados. ' : ''}Pueden saldarlo ahora o cerrar y que pase como saldo inicial a ${esc(nombreMes(sumarMeses(mes, 1)).toLowerCase())}.</p>
+        <button class="btn sec wide" data-a="pagar-cierre" data-de="${esc(t.de)}" data-para="${esc(t.a)}" data-m="${t.monto}">Registrar pago de ${esc(fmt(t.monto))}</button>`
+        : `<h2 class="paso-t">Están al día</h2><p class="sm muted">Nadie le debe a nadie en ${esc(nm)}.</p>`;
+    } else if (e.paso === 3) {
+      const t = proy[0];
+      cuerpo = `<h2 class="paso-t">Listo para cerrar</h2>
+        <section class="card list">
+          <div class="row"><span class="row-m">Gastado en ${esc(nm)}</span><span class="amt num">${dinero0(r.gastado + r.comprometido)}</span></div>
+          <div class="row"><span class="row-m">Presupuesto</span><span class="amt num">${r.presupuesto > 0 ? dinero0(r.presupuesto) : '—'}</span></div>
+          <div class="row"><span class="row-m">Por pagar que se marcan pagados</span><span class="amt">${prog.length}</span></div>
+          <div class="row"><span class="row-m">Saldo entre ustedes</span><span class="amt">${t ? `${esc(nombre(S, t.de))} debe ${esc(fmt(t.monto))}` : 'Al día'}</span></div>
+        </section>
+        ${mes > mesActual() ? alerta('warn', 'Este mes todavía no termina', 'Puedes cerrarlo igual, pero no podrán registrar más gastos en él.') : ''}
+        <div class="det-nota">${placa('cerrado', 'var(--warn, #B26B00)', 28)}<span class="sm">Después de cerrar, nadie podrá cambiar gastos de ${esc(nm)}. Solo el administrador puede reabrirlo.</span></div>`;
+    } else {
+      cuerpo = `<section class="center stack hecho">${placa('pagado', 'var(--accent)', 76)}<h2 class="paso-t">${esc(nombreMes(mes))} está cerrado</h2><p class="sm muted">Quedó guardado en la hoja. El resto del hogar también lo verá cerrado.</p></section>`;
+    }
+    const pie = e.paso === 4 ? '<a class="btn pri wide" href="#/cierre">Volver a Cuentas</a>'
+      : `<button class="btn ${e.paso === 3 ? 'lock' : 'pri'} wide" data-a="${e.paso === 3 ? 'confirmar-cierre' : 'siguiente'}">${e.paso === 3 ? `Cerrar ${esc(nm)}` : e.paso === 2 && proy.length ? 'Seguir sin saldar' : 'Seguir'}</button>
+         ${e.paso > 1 ? '<button class="btn ghost wide" data-a="atras-paso">Atrás</button>' : ''}`;
+    return `${encabezado({ titulo: 'Cerrar ' + nm })}<main class="pad cerrar-mes">${e.paso < 4 ? barra : ''}${cuerpo}<div class="actions">${pie}</div></main>`;
+  },
+  acciones: {
+    siguiente(c) { c.estado.paso += 1; c.render(); },
+    'atras-paso'(c) { c.estado.paso = Math.max(1, c.estado.paso - 1); c.render(); },
+    'pagar-cierre'(c, d) {
+      ops.registrarLiquidacion({ mes: c.mes, de: d.de, a: d.para, monto: Number(d.m), fecha: hoy() });
+      c.avisar('Pago registrado');
+    },
+    'confirmar-cierre'(c) { ops.cerrarMes(c.mes); c.estado.paso = 4; c.avisar('Mes cerrado'); }
+  }
+};
+
+export default { cierre: cuentas, cerrar: cerrarMes };

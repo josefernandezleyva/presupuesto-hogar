@@ -4,13 +4,68 @@ import * as L from '../logic.js';
 import { esc, nombreMes, pct, r2, mesActual, fmt0 } from '../util.js';
 import { tituloGrande, tabbar, chips, dinero0, barra, vacio, icono } from '../ui.js';
 import { barras, linea, barraMeta } from '../charts.js';
-import { puntoCat, nombre } from './comun.js';
+import { puntoCat, placaCat, placa, nombre } from './comun.js';
+import { segmentado } from '../ui.js';
+import { compromisosHtml } from './plan.js';
+import compromisosPantalla from './plan.js';
 
 const corto = (m) => nombreMes(m, { corto: true, anio: false });
 
 export default {
-  iniciar(c) { c.estado.fp = ''; },
+  iniciar(c) { c.estado.fp = ''; c.estado.vista = ['mes', 'tend', 'prox'].includes(c.query.v) ? c.query.v : 'mes'; },
   vista(c) {
+    // 3.0 · La pestaña Presupuesto reúne el mes (presupuesto, ingresos y topes), las tendencias (el antiguo
+    // Análisis) y lo próximo (Compromisos). Las funciones no cambian: solo se encuentran en un lugar.
+    const e = c.estado;
+    const cab = `${tituloGrande({ titulo: 'Presupuesto', mes: c.mes, derecha: `<a class="btn-ic round" href="#/reporte" aria-label="Reporte de gastos">${icono('reporte', 21)}</a>` })}
+      ${segmentado('vista', [{ v: 'mes', l: 'Este mes' }, { v: 'tend', l: 'Tendencias' }, { v: 'prox', l: 'Próximos' }], e.vista, 'Vista')}`;
+    if (e.vista === 'prox') return `<main class="pad has-tabs pres">${cab}${compromisosHtml(c)}</main>${tabbar('analisis')}`;
+    if (e.vista !== 'tend') return `<main class="pad has-tabs pres">${cab}${vistaMes(c)}</main>${tabbar('analisis')}`;
+    return vistaTendencias(c, cab);
+  },
+  acciones: {
+    'ver-mes'(c, d) { compromisosPantalla.compromisos.acciones['ver-mes'](c, d); }
+  }
+};
+
+/** 3.0 · Este mes: presupuesto e ingreso, lo que queda y los topes por grupo. */
+function vistaMes(c) {
+  const { S, mes } = c;
+  const r = L.resumenMes(S, mes);
+  const usado = r2(r.gastado + r.comprometido);
+  const pG = r.presupuesto > 0 ? Math.min(100, r.gastado / r.presupuesto * 100) : 0;
+  const pC = r.presupuesto > 0 ? Math.min(100 - pG, r.comprometido / r.presupuesto * 100) : 0;
+  const porGrupo = new Map();
+  r.porCategoria.filter((f) => f.usado > 0 || f.tope > 0).forEach((f) => {
+    const g = L.grupoDe(S, f.cat.grupo)?.nombre || f.cat.grupo || 'Otros';
+    if (!porGrupo.has(g)) porGrupo.set(g, []);
+    porGrupo.get(g).push(f);
+  });
+  const orden = L.grupos(S).map((g) => g.nombre);
+  const grupos = [...porGrupo.entries()].sort((a, b) => (orden.indexOf(a[0]) + 999 * (orden.indexOf(a[0]) < 0)) - (orden.indexOf(b[0]) + 999 * (orden.indexOf(b[0]) < 0)));
+  const tag = (f) => f.estado === 'excede' ? '<span class="badge bad">Superado</span>' : f.estado === 'aviso' ? `<span class="badge warn">${esc(pct(f.pct))}</span>` : '';
+  return `<section class="card pres-res">
+      <div class="duo">
+        <a href="#/ingresos" class="duo-c">${placa('sueldo', '#2E7D6B', 32)}<span class="lbl">Ingreso del hogar</span><span class="mid num">${r.ingreso > 0 ? dinero0(r.ingreso) : 'Registrar'}</span></a>
+        <a href="#/presupuesto" class="duo-c">${placa('meta', 'var(--accent)', 32)}<span class="lbl">Presupuesto</span><span class="mid num">${r.presupuesto > 0 ? dinero0(r.presupuesto) : 'Definir'}</span></a>
+      </div>
+      ${r.presupuesto > 0 ? `<div class="track dos" role="img" aria-label="Gastado ${Math.round(pG)} %, por pagar ${Math.round(pC)} %"><span class="g" style="width:${pG}%"></span><span class="c" style="width:${pC}%"></span></div>
+      <div class="split sm"><span>Gastado ${dinero0(r.gastado)} · por pagar ${dinero0(r.comprometido)}</span><b class="num${r.disponible < 0 ? ' bad-t' : ''}">${r.disponible < 0 ? 'Excedido ' + dinero0(-r.disponible) : 'Quedan ' + dinero0(r.disponible)}</b></div>` : '<p class="muted sm">Define el presupuesto del mes para ver cuánto queda.</p>'}
+      ${r.ingreso > 0 && r.presupuesto > 0 ? `<p class="xs muted">El presupuesto es el ${esc(pct(r.presupuesto / r.ingreso * 100))} del ingreso · gasto y compromisos: ${dinero0(usado)}</p>` : ''}
+    </section>
+    <div class="split vc sec-h"><h2 class="h2">Topes por categoría</h2><a class="btn sec mini" href="#/presupuesto">Editar topes</a></div>
+    ${grupos.length ? grupos.map(([g, fs]) => `<section class="card grupo-tope">
+      <div class="split xs b muted"><span>${puntoCat({ grupo: g })} ${esc(g)}</span><span class="num">${dinero0(fs.reduce((a, f) => a + f.usado, 0))}${fs.some((f) => f.tope > 0) ? ' de ' + dinero0(fs.reduce((a, f) => a + f.tope, 0)) : ''}</span></div>
+      ${fs.map((f) => `<a class="catrow" href="#/gastos?cat=${esc(f.cat.id)}">
+        <span class="split vc">${placaCat(f.cat, 30)}<span class="grow sm b">${esc(f.cat.nombre)} ${tag(f)}</span><span class="muted sm num">${dinero0(f.usado)}${f.tope > 0 ? ' de ' + dinero0(f.tope) : ''}</span></span>
+        ${f.tope > 0 ? barra(f.pct, f.estado) : ''}
+      </a>`).join('')}
+    </section>`).join('') : vacio('Todavía no hay gastos ni topes este mes.', '<a class="btn pri" href="#/presupuesto">Definir el presupuesto</a>')}`;
+}
+
+/** Tendencias: el contenido del antiguo Análisis. */
+function vistaTendencias(c, cab) {
+  {
     const { S, mes, estado: e } = c;
     const pid = e.fp || null;
     const r = L.resumenMes(S, mes, pid);
@@ -22,8 +77,8 @@ export default {
     const cats = r.porCategoria.filter((f) => f.usado > 0 || f.tope > 0).sort((a, b) => b.usado - a.usado);
     const pasados = evo.filter((x) => x.presupuesto > 0 && x.total > x.presupuesto + 0.004 && x.mes < mes);
 
-    let html = `<main class="pad has-tabs">
-      ${tituloGrande({ titulo: 'Análisis', mes, derecha: `<a class="btn-ic round" href="#/reporte" aria-label="Reporte de gastos">${icono('reporte', 21)}</a>` })}
+    let html = `<main class="pad has-tabs pres">
+      ${cab}
       ${chips('fp', personas, e.fp, { clase: 'scroll', label: 'Ver por' })}
       ${pid ? '<p class="muted xs">Montos de su parte según el reparto de cada gasto; topes según su participación.</p>' : ''}
 
@@ -59,7 +114,7 @@ export default {
     if (e.mas) html += masIndicadores(c, pid);
     return html + `</main>${tabbar('analisis')}`;
   }
-};
+}
 
 function masIndicadores(c, pid) {
   const { S, mes } = c;

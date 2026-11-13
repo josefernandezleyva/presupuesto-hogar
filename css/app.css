@@ -843,3 +843,117 @@ button.cuota-f { cursor: pointer; }
 .previa li b { font-variant-numeric: tabular-nums; }
 .previa li small { grid-column: 1 / -1; color: var(--muted); font-size: 0.7667rem; }
 .plan-acc .btn { white-space: nowrap; padding-left: 10px; padding-right: 10px; }
+
+/* =====================================================================
+   3.0 · Iconos «Línea casera» y placas de categoría
+   ===================================================================== */
+.ic.lc { stroke-width: 1.75; }
+.lc .a { fill: currentColor; fill-opacity: .22; }
+.cat-ic { display: inline-flex; vertical-align: -3px; color: var(--c); margin-right: 2px; }
+.placa { flex: none; display: grid; place-items: center; border-radius: 30%; color: var(--c); background: color-mix(in srgb, var(--c) 14%, var(--card, #fff)); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cat-ic, :root:not([data-theme="light"]) .placa { color: color-mix(in srgb, var(--c) 55%, #fff); } :root:not([data-theme="light"]) .placa { background: color-mix(in srgb, var(--c) 26%, transparent); } }
+:root[data-theme="dark"] .cat-ic, :root[data-theme="dark"] .placa { color: color-mix(in srgb, var(--c) 55%, #fff); }
+:root[data-theme="dark"] .placa { background: color-mix(in srgb, var(--c) 26%, transparent); }
+
+/* =====================================================================
+   3.0 · Rediseño: Inicio, Presupuesto, Gastos, Detalle, Cuentas, Cierre,
+   Hogar y ajustes, estados de carga y sin conexión
+   ===================================================================== */
+.badge.bad { background: var(--bad-cell); color: var(--bad-ink); }
+.badge.warn { background: var(--warn-cell); color: var(--warn-ink); }
+.track.dos { display: flex; height: 10px; border-radius: 5px; background: var(--track); overflow: hidden; gap: 2px; }
+.track.dos .g { background: var(--accent); border-radius: 5px 0 0 5px; }
+.track.dos.warn .g { background: var(--warn); }
+.track.dos.bad .g { background: var(--bad); }
+.track.dos .c { background: var(--warn); opacity: .55; }
+.leyenda { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--soft-ink); }
+.leyenda i { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 6px; vertical-align: -1px; background: var(--accent); }
+.leyenda i.c { background: var(--warn); opacity: .7; }
+
+/* Inicio */
+.inicio .hero { display: flex; flex-direction: column; gap: 12px; }
+.hero-n { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.inicio .hero .big { font-size: 2.9333rem; line-height: 1.05; letter-spacing: -0.03em; }
+.por-dia { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--bg); font-size: 0.9333rem; color: var(--accent-text); }
+.por-dia span:nth-child(2) { flex: 1; color: var(--ink); }
+.hero-pie a { text-decoration: none; color: inherit; }
+.pendientes .con-placa { display: flex; flex-direction: row; align-items: center; gap: 12px; text-decoration: none; color: inherit; flex: 1; min-width: 0; }
+.pendientes .row { gap: 12px; }
+.vacio-mes { align-items: center; text-align: center; }
+.vacio-mes .h2 { font-size: 1.3333rem; }
+.sin-red { display: flex; align-items: center; gap: 12px; flex-direction: row; background: var(--warn-bg); }
+.sin-red .row-t { color: var(--warn-ink); }
+
+/* Presupuesto (pestaña) */
+.pres > .seg { margin: 2px 0 6px; }
+.pres-res { display: flex; flex-direction: column; gap: 12px; }
+.duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.duo-c { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 16px; background: var(--bg); text-decoration: none; color: inherit; min-height: 44px; }
+.sec-h { margin: 10px 4px 0; }
+.btn.mini { min-height: 44px; padding: 0 12px; font-size: 0.9rem; }
+.grupo-tope { display: flex; flex-direction: column; gap: 12px; }
+.grupo-tope .catrow { display: flex; flex-direction: column; gap: 6px; min-height: 44px; justify-content: center; }
+
+/* Gastos */
+.seg-estado { margin: 2px 0 2px; }
+.seg-estado .seg { width: 100%; }
+.placa-av { position: relative; flex: none; display: inline-flex; }
+.placa-av .av { position: absolute; right: -4px; bottom: -4px; box-shadow: 0 0 0 2px var(--card); font-size: 8px !important; }
+.cat-frec { display: flex; gap: 8px; overflow-x: auto; margin: -2px -16px 0; padding: 0 16px 2px; scrollbar-width: none; }
+.cat-frec::-webkit-scrollbar { display: none; }
+.cat-frec .chip { flex: none; }
+.amount .monto-i, .monto-i { font-size: 3.2rem; letter-spacing: -0.02em; }
+
+/* Detalle del gasto */
+.det { display: flex; flex-direction: column; gap: 12px; }
+.det-cab { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 4px 0 6px; }
+.det-t { margin: 0; font-size: 1.4667rem; font-weight: 700; }
+.det-m { font-size: 2.9333rem; font-weight: 800; letter-spacing: -0.03em; line-height: 1; font-family: var(--num); }
+.tachado { text-decoration: line-through; color: var(--muted); }
+.det-est { min-height: 28px; padding: 0 12px; }
+.det-lista { padding-top: 4px; padding-bottom: 4px; }
+.det-f { display: flex; justify-content: space-between; gap: 12px; min-height: 48px; align-items: center; border-top: 1px solid var(--line); font-size: 0.9667rem; }
+.det-f:first-child { border-top: 0; }
+.det-rep, .det-plan { display: flex; flex-direction: column; gap: 10px; text-decoration: none; color: inherit; }
+.plan-segs { display: flex; gap: 4px; }
+.plan-segs span { flex: 1; height: 8px; border-radius: 4px; background: var(--track); }
+.plan-segs span.pag { background: var(--accent); }
+.det-foto { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--accent-text); }
+.det-nota { display: flex; gap: 10px; align-items: center; padding: 12px 14px; border-radius: 14px; background: var(--warn-bg); color: var(--warn-ink); }
+.det-acc { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.det-acc .btn { width: 100%; }
+.det-editar { min-height: 44px; display: inline-flex; align-items: center; font-weight: 600; padding: 0 6px; }
+
+/* Cuentas y cierre */
+.cuentas-tabla { padding-top: 6px; padding-bottom: 6px; }
+.ct-f { display: grid; grid-template-columns: 1fr minmax(0, 76px) minmax(0, 76px); gap: 8px; align-items: center; min-height: 56px; border-top: 1px solid var(--line); }
+.ct-f > span:not(.ct-p) { text-align: right; font-weight: 600; }
+.ct-h { min-height: 36px; border-top: 0; font-size: 0.8rem; font-weight: 700; color: var(--muted); }
+.ct-h > span { font-weight: 700 !important; }
+.ct-p { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.fila-cerrar { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; flex-direction: row; text-align: left; }
+.pasos { list-style: none; margin: 0 0 6px; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.pasos li { display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; font-weight: 700; color: var(--muted); }
+.pasos li span { height: 4px; border-radius: 2px; background: var(--line); }
+.pasos li.on { color: var(--accent-text); }
+.pasos li.on span { background: var(--accent); }
+.paso-t { margin: 4px 0 0; font-size: 1.5333rem; font-weight: 800; letter-spacing: -0.01em; }
+.cerrar-mes { display: flex; flex-direction: column; gap: 12px; }
+.btn.lock { background: var(--ink); color: var(--bg); }
+.hecho { align-items: center; padding: 48px 8px 0; gap: 12px; }
+
+/* Hogar y ajustes */
+.sec-t { font-size: 0.8667rem; font-weight: 700; color: var(--soft-ink); margin: 16px 4px 4px; display: flex; justify-content: space-between; }
+.sec-t span { font-weight: 500; color: var(--muted); }
+
+/* Carga inicial */
+.cargando { display: flex; flex-direction: column; gap: 14px; padding-top: 24px; }
+.sk-cab { display: flex; flex-direction: column; gap: 8px; }
+.sk-card { display: flex; flex-direction: column; gap: 12px; }
+.sk { display: block; border-radius: 8px; background: linear-gradient(90deg, var(--track) 0%, var(--card) 50%, var(--track) 100%); background-size: 200% 100%; animation: sk-brillo 1.4s ease-in-out infinite; }
+.sk-msg { align-self: center; display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 8px 14px; border-radius: 18px; background: var(--card); color: var(--accent-text); font-size: 0.9333rem; font-weight: 600; }
+.sk-giro { width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: girar 1s linear infinite; }
+@keyframes sk-brillo { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .sk, .sk-giro { animation: none; } }
+.det-foto, .fila-cerrar, .sin-red { flex-direction: row !important; }
+.det-rep, .det-plan { flex-direction: column !important; }

@@ -2,10 +2,11 @@ import * as L from '../logic.js';
 import * as ops from '../ops.js';
 import { esc, fechaCorta, r2, num, nombreMes, hoy } from '../util.js';
 import { tituloGrande, tabbar, avatar, dinero, vacio, icono } from '../ui.js';
-import { puntoCat } from './comun.js';
+import { puntoCat, placaCat } from './comun.js';
+import { segmentado } from '../ui.js';
 
 /** Filtros activos sobre la lista del mes (persona aparte, en los chips). */
-const nFiltros = (e) => [e.ft, e.fc, e.fe].filter(Boolean).length;
+const nFiltros = (e) => [e.ft, e.fc].filter(Boolean).length;
 
 function filtrar(c) {
   const { S, mes, estado: e } = c;
@@ -60,6 +61,7 @@ export default {
     // Con el nombre corto los chips caben sin cortarse (José, Mayra).
     const personas = [{ v: '', l: 'Todos' }, ...L.personas(S).map((p) => ({ v: p.id, l: p.alias || String(p.nombre).split(' ')[0] }))];
     const n = nFiltros(e);
+    const nProg = L.gastosMes(S, mes, [L.ESTADO.PROG]).length;
     const buscando = !!String(e.q || '').trim();
     return `<main class="pad has-tabs${buscando ? ' buscando' : ''}">
       ${tituloGrande({ titulo: 'Gastos', mes, cerrado, derecha: `<a class="btn-ic round" href="#/reporte" aria-label="Reporte de gastos">${icono('reporte', 21)}</a>` })}
@@ -69,6 +71,7 @@ export default {
         <input id="q" type="search" class="buscar-i" data-f="q" data-keep placeholder="Buscar en todos los meses" autocomplete="off" enterkeyhint="search" value="${esc(e.q || '')}">
         <button type="button" class="buscar-x" data-a="borrar-q" aria-label="Borrar búsqueda">×</button>
       </div>
+      <div class="seg-estado">${segmentado('fe', [{ v: '', l: 'Todos' }, { v: 'Programado', l: nProg ? `Por pagar · ${nProg}` : 'Por pagar' }, { v: 'Confirmado', l: 'Pagados' }], e.fe, 'Estado')}</div>
       <div class="filtros-fila" role="group" aria-label="Filtrar gastos">
         <button type="button" class="chip filtro-b${n ? ' on' : ''}" data-a="filtros" aria-label="Filtros${n ? `, ${n} activos` : ''}">${icono('filtro', 16)} Filtros${n ? ` · ${n}` : ''}</button>
         <span class="filtros-sep" aria-hidden="true"></span>
@@ -95,11 +98,10 @@ export default {
       c.preguntar({
         titulo: 'Filtros',
         html: `<label class="lbl" for="f-t">Tipo</label><select id="f-t" name="ft" class="select">${op('', 'Todos', e.ft)}${op('Fijo', 'Fijos', e.ft)}${op('Variable', 'Variables', e.ft)}</select>
-          <label class="lbl" for="f-c">Categoría</label><select id="f-c" name="fc" class="select">${op('', 'Todas', e.fc)}${L.categoriasPorGrupo(S, { todas: true }).map(({ grupo, cats: cs }) => `<optgroup label="${esc(grupo.nombre)}">${cs.map((x) => op(x.id, x.nombre, e.fc)).join('')}</optgroup>`).join('') || cats.map((x) => op(x.id, x.nombre, e.fc)).join('')}</select>
-          <label class="lbl" for="f-e">Estado</label><select id="f-e" name="fe" class="select">${op('', 'Todos', e.fe)}${op('Confirmado', 'Pagados', e.fe)}${op('Programado', 'Por pagar', e.fe)}</select>`,
+          <label class="lbl" for="f-c">Categoría</label><select id="f-c" name="fc" class="select">${op('', 'Todas', e.fc)}${L.categoriasPorGrupo(S, { todas: true }).map(({ grupo, cats: cs }) => `<optgroup label="${esc(grupo.nombre)}">${cs.map((x) => op(x.id, x.nombre, e.fc)).join('')}</optgroup>`).join('') || cats.map((x) => op(x.id, x.nombre, e.fc)).join('')}</select>`,
         botones: [
-          { l: 'Aplicar', estilo: 'pri', fn: (c2, v) => { Object.assign(c2.estado, { ft: v.ft, fc: v.fc, fe: v.fe }); c2.render(); } },
-          { l: 'Quitar filtros', estilo: 'sec', fn: (c2) => { Object.assign(c2.estado, { ft: '', fc: '', fe: '' }); c2.render(); } }
+          { l: 'Aplicar', estilo: 'pri', fn: (c2, v) => { Object.assign(c2.estado, { ft: v.ft, fc: v.fc }); c2.render(); } },
+          { l: 'Quitar filtros', estilo: 'sec', fn: (c2) => { Object.assign(c2.estado, { ft: '', fc: '' }); c2.render(); } }
         ]
       });
     },
@@ -185,9 +187,9 @@ function item(c, g, cerrado, { fecha = false } = {}) {
   const prog = g.estado === L.ESTADO.PROG;
   const titulo = g.nota || cat?.nombre || 'Gasto';
   const fila = `<div class="gitem${cerrado ? '' : ' sw-cont'}">
-    <a class="gitem-m" href="#/gasto/${esc(g.id)}">
-      ${avatar(L.persona(S, g.pagado_por), 32)}
-      <span class="row-m"><span class="row-t">${puntoCat(cat)}&nbsp;${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${prog ? ` <span class="badge ${g.fecha < hoy() ? 'warn' : 'soft'}">${g.fecha < hoy() ? 'Vencido' : 'Por pagar'}</span>` : ''}</span>
+    <a class="gitem-m" href="#/ver/${esc(g.id)}">
+      <span class="placa-av">${placaCat(cat, 38)}${avatar(L.persona(S, g.pagado_por), 18)}</span>
+      <span class="row-m"><span class="row-t">${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${prog ? ` <span class="badge ${g.fecha < hoy() ? 'bad' : 'warn'}">${g.fecha < hoy() ? 'Vencido' : 'Por pagar'}</span>` : ''}</span>
       <span class="row-s">${g.nota ? esc(cat?.nombre || '') + ' · ' : ''}${sub}</span></span>
       <span class="amt num">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}${tuParte(c, g)}</span>
     </a>

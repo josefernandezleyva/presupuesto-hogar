@@ -20,10 +20,11 @@ import plan from './pantallas/plan.js';
 import inicioSesion from './pantallas/conectar.js';
 import reporte from './pantallas/reporte.js';
 import novedades from './pantallas/novedades.js';
+import detalle from './pantallas/detalle.js';
 import { procesarCola } from './evidencia.js';
 import * as avisos from './avisos.js';
 
-const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, cierre, analisis, reporte, ...mas, ...maestros, ...plan, ...inicioSesion, ...novedades };
+const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, ...cierre, analisis, reporte, ...mas, ...maestros, ...plan, ...inicioSesion, ...novedades, ...detalle };
 // Pestañas de la barra inferior (2.0): entre ellas la transición es un fundido; el resto entra deslizando.
 const PESTANAS = new Set(['inicio', 'gastos', 'cierre', 'analisis']);
 const SIN_SESION = new Set(['conectar', 'hogar', 'quien']);
@@ -384,21 +385,21 @@ st.cargarCopia().catch(() => 'local').then(async (r) => {
   mostrarNovedadesVersion();
 });
 
-/** Una sola vez: qué cambió en la 2.0 y dónde quedó cada cosa. */
+/** Una sola vez: qué cambió en la 3.0 y dónde quedó cada cosa (solo a quien ya usaba la app). */
 function mostrarNovedadesVersion() {
   const meta = st.getMeta();
-  if (meta.visto20) return;
-  st.setMeta({ visto20: true });
+  if (meta.visto30) return;
+  st.setMeta({ visto20: true, visto30: true });
   if (puerta() || (!meta.ultimoSync && !meta.demo)) return; // instalación nueva: no hay nada que comparar
   preguntar({
-    titulo: 'Novedades de la versión 2.0',
+    titulo: 'Novedades de la versión 3.0',
     html: `<ul class="nuevo20">
-      <li><b>Cuentas</b> es una pestaña: saldo entre ustedes, pagos y cierre del mes.</li>
-      <li><b>Avisos</b>: activa en Ajustes que te avise cada gasto que registre la otra persona.</li>
-      <li><b>Novedades</b>: la campana de Inicio muestra lo que registró la otra persona.</li>
-      <li><b>Hogar y ajustes</b>: toca tu foto, arriba a la derecha de Inicio.</li>
-      <li><b>Buscar</b> gastos en todos los meses, desde Gastos.</li>
-      <li>Tira hacia abajo para sincronizar, y toca el ojo para ocultar los montos.</li>
+      <li><b>Inicio</b> muestra primero cuánto les queda, y en <b>Pendientes</b> lo que pide acción.</li>
+      <li><b>Presupuesto</b> es una pestaña: el mes, las tendencias (lo que era Análisis) y lo próximo.</li>
+      <li>Al tocar un gasto se abre su <b>detalle</b>; para cambiarlo, toca Editar.</li>
+      <li>En Gastos, <b>Todos · Por pagar · Pagados</b> a la vista, y cada categoría con su ícono.</li>
+      <li><b>Cerrar el mes</b> se hace en 3 pasos, desde Cuentas.</li>
+      <li>Hogar y ajustes, ordenado: para ti, el hogar y los datos.</li>
     </ul>`,
     botones: [{ l: 'Entendido', estilo: 'pri' }],
     cancelar: 'Cerrar'

@@ -272,6 +272,18 @@ function repResumenHtml(c) {
   </button>`;
 }
 
+/** 3.0 · Las 4 categorías más usadas en los últimos 90 días, como atajos con su ícono. */
+function frecuentesHtml(c) {
+  const { S, estado: e } = c;
+  const desde = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+  const cuenta = new Map();
+  S.Gastos.forEach((g) => { if (g.estado !== L.ESTADO.ANUL && g.fecha >= desde && g.categoria_id) cuenta.set(g.categoria_id, (cuenta.get(g.categoria_id) || 0) + 1); });
+  const activas = new Set(L.categorias(S).map((x) => x.id));
+  const top = [...cuenta.entries()].filter(([id]) => activas.has(id)).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([id]) => L.categoria(S, id));
+  if (top.length < 2) return '';
+  return `<div class="cat-frec" role="group" aria-label="Categorías frecuentes">${top.map((x) => `<button type="button" class="chip${e.categoria_id === x.id ? ' on' : ''}" data-a="catFrecuente" data-v="${esc(x.id)}" aria-pressed="${e.categoria_id === x.id}">${puntoCat(x)} ${esc(x.nombre)}</button>`).join('')}</div>`;
+}
+
 /** Monto que corresponde a un porcentaje en el panel de reparto («= S/ 120.00»). */
 function montoPctHtml(c, id) {
   const soles = solesDelMes(c);
@@ -483,6 +495,7 @@ const pantalla = {
         <span class="row-m"><span class="lbl">Categoría</span>
           <span class="campo-v">${catSel ? `${puntoCat(catSel)} ${esc(catSel.nombre)} <span class="muted">· ${esc(catSel.grupo || 'Otros')}</span>` : 'Elige una categoría'}</span></span>
         ${icono('adelante', 18)}</button>
+      ${!bloqueado ? frecuentesHtml(c) : ''}
       ${errorDe(e, 'categoria')}
       <div id="uso">${usoHtml(c)}</div>
 
@@ -643,6 +656,14 @@ const pantalla = {
       if (e.falta?.campo === 'categoria') e.falta = null;
       if (!e.tipoManual) e.tipo = '';
       c.preguntar(null);
+    },
+    // 3.0: atajo de una categoría frecuente (lo mismo que elegirla en la lista).
+    catFrecuente(c, d) {
+      const e = c.estado;
+      e.categoria_id = d.v;
+      if (e.falta?.campo === 'categoria') e.falta = null;
+      if (!e.tipoManual) e.tipo = '';
+      c.render();
     },
     mesReg(c, d) { moverAMes(c, sumarMeses(mesDe(c.estado.fecha), Number(d.d))); },
     mesHoy(c) { moverAMes(c, mesActual()); },

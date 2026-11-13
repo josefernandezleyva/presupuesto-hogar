@@ -58,7 +58,12 @@
   </script>
 </head>
 <body>
-  <div id="app"><main class="pad"><p class="muted">Cargando…</p></main></div>
+  <div id="app"><main class="pad cargando" aria-busy="true">
+    <div class="sk-cab"><span class="sk" style="width:46%;height:14px"></span><span class="sk" style="width:62%;height:30px"></span></div>
+    <p class="sk-msg" role="status"><span class="sk-giro" aria-hidden="true"></span>Trayendo lo último de la hoja…</p>
+    <div class="card sk-card"><span class="sk" style="width:40%;height:12px"></span><span class="sk" style="width:60%;height:40px"></span><span class="sk" style="width:100%;height:8px"></span></div>
+    <div class="card sk-card"><span class="sk" style="width:35%;height:16px"></span><span class="sk" style="width:90%;height:36px"></span><span class="sk" style="width:80%;height:36px"></span><span class="sk" style="width:85%;height:36px"></span></div>
+  </main></div>
   <noscript>Esta app necesita JavaScript.</noscript>
   <script type="module" src="./js/main.js"></script>
 </body>

@@ -7,16 +7,16 @@ import { esc, nombreMes, mesActual, fmt, num, r2, parseMonto, hoy } from '../uti
 import { encabezado, dinero0, dinero, vacio, alerta, icono } from '../ui.js';
 import { barras } from '../charts.js';
 
-const compromisos = {
-  vista(c) {
-    const { S } = c;
+/** 3.0 · Contenido de Compromisos (también en Presupuesto › Próximos). */
+export function compromisosHtml(c) {
+  const { S } = c;
+  {
     const desde = mesActual();
     const meses = L.compromisos(S, desde, 12);
     const planes = L.planesActivos(S).map((p) => ({ p, prog: L.progresoPlan(S, p) })).filter((x) => x.prog.pendientes > 0)
       .sort((a, b) => b.prog.montoPendiente - a.prog.montoPendiente);
     const total = meses.reduce((a, m) => a + m.monto, 0);
-    return `${encabezado({ titulo: 'Compromisos' })}
-    <main class="pad">
+    return `
       <section class="card">
         <div class="lbl">Programado en los próximos 12 meses</div>
         <div class="big">${dinero0(total)}</div>
@@ -31,8 +31,13 @@ const compromisos = {
       ${planes.length ? `<section class="card list">${planes.map(({ p, prog }) => `<a class="row" href="${p.modalidad === 'Cuotas' ? '#/plan/' + esc(p.id) : '#/gasto/' + esc(prog.proxima?.id || '')}">
         <span class="row-m"><span class="row-t">${esc(p.descripcion)}</span>
         <span class="row-s">${p.modalidad === 'Cuotas' ? `Cuotas: ${prog.confirmadas} de ${p.nro_cuotas} pagadas` : 'Recurrente' + (p.duracion_meses ? ` por ${p.duracion_meses} meses` : ' sin fin')} · ${esc(L.categoria(S, p.categoria_id)?.nombre || '')}</span></span>
-        <span class="amt">${esc(fmt(p.monto_cuota, { moneda: p.moneda }))}<span class="row-s">por mes</span></span></a>`).join('')}</section>` : vacio('No hay cuotas ni gastos recurrentes activos. Créalos desde Registrar gasto > Más opciones.')}
-    </main>`;
+        <span class="amt">${esc(fmt(p.monto_cuota, { moneda: p.moneda }))}<span class="row-s">por mes</span></span></a>`).join('')}</section>` : vacio('No hay cuotas ni gastos recurrentes activos. Créalos al registrar un gasto, en «Se paga».')}`;
+  }
+}
+
+const compromisos = {
+  vista(c) {
+    return `${encabezado({ titulo: 'Compromisos' })}<main class="pad">${compromisosHtml(c)}</main>`;
   },
   acciones: {
     'ver-mes'(c, d) { c.setMes(d.m); c.ir('gastos?estado=Programado'); }

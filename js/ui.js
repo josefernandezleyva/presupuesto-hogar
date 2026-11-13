@@ -63,11 +63,11 @@ export function barraMes(mes, { derecha = '', cerrado = false } = {}) {
   </div>`;
 }
 
-/** Barra de pestañas (2.0): Inicio, Gastos, Cuentas y Análisis; el + registra. Ajustes, desde el avatar de Inicio. */
+/** Barra de pestañas (3.0): Inicio, Gastos, Presupuesto y Cuentas; el + registra. Ajustes, desde el avatar de Inicio. */
 export function tabbar(activa) {
   const t = (ruta, ic, label) => `<a href="#/${ruta}" class="tab${activa === ruta ? ' on' : ''}"${activa === ruta ? ' aria-current="page"' : ''}>${icono(ic, 24)}<span>${label}</span></a>`;
   return `<nav class="tabbar" aria-label="Secciones">
-    <div class="tabgroup">${t('inicio', 'inicio', 'Inicio')}${t('gastos', 'lista', 'Gastos')}${t('cierre', 'cuentas', 'Cuentas')}${t('analisis', 'grafico', 'Análisis')}</div>
+    <div class="tabgroup">${t('inicio', 'inicio', 'Inicio')}${t('gastos', 'lista', 'Gastos')}${t('cierre', 'cuentas', 'Cuentas')}${t('analisis', 'grafico', 'Presupuesto')}</div>
     <a href="#/nuevo" class="tab-add" aria-label="Registrar gasto">${icono('mas', 28)}</a>
   </nav>`;
 }

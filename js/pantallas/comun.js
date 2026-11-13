@@ -1,5 +1,6 @@
 // Fragmentos compartidos entre pantallas.
 
+import { iconoDe, svg } from '../iconos.js';
 import * as L from '../logic.js';
 import { esc, fmt, nombreMes } from '../util.js';
 import { icono } from '../ui.js';
@@ -33,9 +34,22 @@ export function fraseSaldo(S, trans) {
 }
 
 /** Punto con el color del grupo de la categoría. */
+/** 3.0 · Ícono pequeño de la categoría (en línea con el texto), del color de su grupo. */
 export function puntoCat(cat) {
   const color = L.grupoDe(foto(), cat?.grupo)?.color || L.colorGrupoInicial(cat?.grupo);
-  return `<span class="dot" style="background:${esc(color)}" aria-hidden="true"></span>`;
+  const ic = cat?.nombre ? iconoDe(cat.nombre, cat.grupo) : iconoDe(cat?.grupo || '', '');
+  return `<span class="cat-ic" style="--c:${esc(color)}">${svg(ic, 16)}</span>`;
+}
+
+/** 3.0 · Placa redondeada con el ícono de la categoría, para el inicio de las filas. */
+export function placaCat(cat, size = 36) {
+  const color = L.grupoDe(foto(), cat?.grupo)?.color || L.colorGrupoInicial(cat?.grupo);
+  return `<span class="placa" style="--c:${esc(color)};width:${size}px;height:${size}px" aria-hidden="true">${svg(iconoDe(cat?.nombre || '', cat?.grupo || ''), Math.round(size * 0.6))}</span>`;
+}
+
+/** 3.0 · Placa con un ícono del set (estados, ingresos…), con color propio. */
+export function placa(nombre, color = 'var(--accent)', size = 36) {
+  return `<span class="placa" style="--c:${color};width:${size}px;height:${size}px" aria-hidden="true">${svg(nombre, Math.round(size * 0.6))}</span>`;
 }
 
 const pctTxt = (v) => `${Number(v).toLocaleString('es-PE', { maximumFractionDigits: 2 })} %`;

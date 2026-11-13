@@ -163,7 +163,7 @@ function vistaDe(c, r) {
     return `<h3 class="dia">${esc(nombreMes(mes))} · ${esc(fmt(totalMes))}</h3><section class="card list">${parte.map((g) => {
       const cat = L.categoria(S, g.categoria_id);
       const plan = g.plan_id ? L.idx(S).plan.get(g.plan_id) : null;
-      return `<a class="row" href="#/gasto/${esc(g.id)}">
+      return `<a class="row" href="#/ver/${esc(g.id)}">
         <span class="row-m"><span class="row-t">${puntoCat(cat)} ${esc(g.nota || cat?.nombre || 'Gasto')}${g.evidencia_id ? ` <span class="clip" aria-label="Tiene foto">${icono('foto', 14)}</span>` : ''}${g.estado === L.ESTADO.PROG ? ' <span class="badge soft">Por pagar</span>' : ''}</span>
         <span class="row-s">${esc(fechaCorta(g.fecha))} · ${esc(cat?.nombre || '')}${plan && plan.modalidad === 'Cuotas' ? ` · cuota ${g.nro_cuota}/${plan.nro_cuotas}` : ''} · pagó ${esc(L.persona(S, g.pagado_por)?.nombre || '')}</span></span>
         <span class="amt">${dinero(num(g.monto), { moneda: g.moneda })}${g.moneda !== 'PEN' ? `<span class="row-s">${dinero(g.monto_soles)}</span>` : ''}</span></a>`;

@@ -5,7 +5,7 @@ import * as ops from '../ops.js';
 import * as st from '../store.js';
 import { esc, fmt, fmt0, nombreMes, sumarMeses, parseMonto, num, r2, mesActual, SIMBOLO } from '../util.js';
 import { encabezado, barraMes, tabbar, fila, avatar, icono, alerta, segmentado, dinero0 } from '../ui.js';
-import { lineaSync, tarjetaPropuesta, usarPropuesta } from './comun.js';
+import { lineaSync, tarjetaPropuesta, usarPropuesta, placa } from './comun.js';
 import { borrarDemo } from '../demo.js';
 import { pendientes as fotosPendientes, procesarCola, estadoCola } from '../evidencia.js';
 import { mensajeError } from '../api.js';
@@ -18,35 +18,37 @@ const menu = {
     const { S, yo, admin, mes } = c;
     const tc = L.tipoCambioDelMes(S, mes);
     const avisosTxt = c.meta.demo ? 'No disponibles en el modo de ejemplo' : c.meta.avisos ? 'Activados en este iPhone' : 'Desactivados';
+    const t = leerTema();
+    const aspecto = t.modo === 'auto' ? 'Automático' : t.modo === 'dark' ? 'Oscuro' : 'Claro';
+    const color = t.acento === PERSONAL ? 'Color propio' : ACENTOS.find((a) => a.v === t.acento)?.l || 'Verde';
+    const sinVer = L.novedadesSinVer(S, yo?.id, c.meta.novedadesVistas || '');
+    // 3.0 · Tres grupos: lo de este iPhone, lo que comparten (lo edita el administrador) y los datos.
     return `${encabezado({ titulo: 'Hogar y ajustes' })}
-    <main class="pad">
+    <main class="pad ajustes30">
       <section class="card list">
-        ${fila({ izq: avatar(yo, 44), titulo: esc(yo?.nombre || ''), sub: `${esc(yo?.rol || '')} · este celular`, der: flecha, href: '#/ajustes' })}
+        ${fila({ izq: avatar(yo, 48), titulo: `<span class="mid">${esc(yo?.nombre || '')}</span>`, sub: `${esc(yo?.rol || '')} · en este iPhone`, der: flecha, href: '#/ajustes' })}
       </section>
-      <h3 class="dia">Avisos</h3>
+      <h3 class="sec-t">Para ti <span>solo en este iPhone</span></h3>
       <section class="card list">
-        ${fila({ izq: icono('campana', 22), titulo: 'Avisos de gastos nuevos', sub: avisosTxt, der: flecha, href: '#/avisos' })}
-        ${fila({ izq: icono('reloj', 22), titulo: 'Novedades', sub: 'Lo que registró la otra persona', der: flecha, href: '#/novedades' })}
+        ${fila({ izq: placa('campana', '#B3362A', 34), titulo: 'Avisos de gastos nuevos', sub: avisosTxt, der: flecha, href: '#/avisos' })}
+        ${fila({ izq: placa('porPagar', '#2F5D8A', 34), titulo: 'Novedades', sub: sinVer ? `${sinVer} sin ver · lo que registró la otra persona` : 'Lo que registró la otra persona', der: flecha, href: '#/novedades' })}
+        ${fila({ izq: placa('porDia', 'var(--accent)', 34), titulo: 'Aspecto, color e ícono', sub: `${esc(aspecto)} · ${esc(color)} · ${esc(ESTILOS.find((m) => m.v === t.estilo)?.l || '')}`, der: flecha, href: '#/apariencia' })}
       </section>
-      <h3 class="dia">Mes</h3>
+      <h3 class="sec-t">El hogar <span>${admin ? 'lo ven todos' : 'solo lectura'}</span></h3>
       <section class="card list">
-        ${fila({ titulo: 'Ingresos', sub: `Sueldos de ${esc(nombreMes(mes).toLowerCase())}`, der: flecha, href: '#/ingresos' })}
-        ${fila({ titulo: 'Compromisos', sub: 'Cuotas y recurrentes que vienen', der: flecha, href: '#/compromisos' })}
-        ${fila({ titulo: 'Reporte de gastos', sub: 'Filtrar, agrupar y exportar a Excel', der: flecha, href: '#/reporte' })}
+        ${fila({ izq: placa('hogarTodos', '#A23B72', 34), titulo: 'Personas y participación', sub: Object.entries(L.participacion(S, mes)).map(([id, p]) => `${esc(L.persona(S, id)?.alias || L.persona(S, id)?.nombre || '')} ${p} %`).join(' · '), der: flecha, href: '#/personas' })}
+        ${fila({ izq: placa('sueldo', '#2E7D6B', 34), titulo: 'Ingresos', sub: `Sueldos de ${esc(nombreMes(mes).toLowerCase())}`, der: flecha, href: '#/ingresos' })}
+        ${fila({ izq: placa('meta', 'var(--accent)', 34), titulo: 'Presupuesto y topes', sub: `${esc(fmt0(L.presupuestoMes(S, mes)))} en ${esc(nombreMes(mes).toLowerCase())}`, der: flecha, href: '#/presupuesto' })}
+        ${fila({ izq: placa('olla', '#B4532A', 34), titulo: 'Categorías y grupos', sub: `${L.categorias(S).length} categorías en ${L.grupos(S).length} grupos`, der: flecha, href: '#/categorias' })}
+        ${fila({ izq: placa('extra', '#8A6D1F', 34), titulo: 'Tipo de cambio', sub: tc ? `US$ 1 = S/ ${tc}` : 'Sin cargar este mes', der: flecha, href: '#/cambio' })}
       </section>
-      <h3 class="dia">Configuración del hogar${admin ? '' : ' (solo lectura)'}</h3>
+      <h3 class="sec-t">Datos y conexión</h3>
       <section class="card list">
-        ${fila({ titulo: 'Personas y participación', sub: Object.entries(L.participacion(S, mes)).map(([id, p]) => `${esc(L.persona(S, id)?.nombre || '')} ${p} %`).join(' · '), der: flecha, href: '#/personas' })}
-        ${fila({ titulo: 'Categorías y grupos', sub: `${L.categorias(S).length} categorías en ${L.grupos(S).length} grupos`, der: flecha, href: '#/categorias' })}
-        ${fila({ titulo: 'Presupuesto y topes', sub: `${esc(fmt0(L.presupuestoMes(S, mes)))} en ${esc(nombreMes(mes).toLowerCase())}`, der: flecha, href: '#/presupuesto' })}
-        ${fila({ titulo: 'Tipo de cambio', sub: tc ? `US$ 1 = S/ ${tc}` : 'Sin cargar este mes', der: flecha, href: '#/cambio' })}
+        ${fila({ izq: placa('compromisos', '#6B4FA0', 34), titulo: 'Compromisos', sub: 'Cuotas y gastos mensuales que vienen', der: flecha, href: '#/compromisos' })}
+        ${fila({ izq: placa('regla', '#2F5D8A', 34), titulo: 'Reporte de gastos', sub: 'Filtrar, agrupar y exportar a Excel', der: flecha, href: '#/reporte' })}
+        ${fila({ izq: placa(c.sync.error ? 'sinConexion' : 'nubeOk', c.sync.error ? '#B26B00' : 'var(--accent)', 34), titulo: 'Ajustes y sincronización', sub: lineaSync(c).replace(/<[^>]+>/g, ''), der: flecha, href: '#/ajustes' })}
       </section>
-      <h3 class="dia">App</h3>
-      <section class="card list">
-        ${fila({ izq: icono('paleta', 22), titulo: 'Apariencia', sub: `${esc(ESTILOS.find((m) => m.v === leerTema().estilo)?.l || '')} · ${esc(leerTema().modo === 'auto' ? 'Automático' : leerTema().modo === 'dark' ? 'Oscuro' : 'Claro')} · ${esc(leerTema().acento === PERSONAL ? 'Color propio' : ACENTOS.find((a) => a.v === leerTema().acento)?.l || 'Verde')}`, der: flecha, href: '#/apariencia' })}
-        ${fila({ titulo: 'Ajustes y sincronización', sub: lineaSync(c).replace(/<[^>]+>/g, ''), der: flecha, href: '#/ajustes' })}
-      </section>
-      <p class="xs muted center">Presupuesto del Hogar · versión 2.5</p>
+      <p class="xs muted center">Presupuesto del Hogar · versión 3.0</p>
     </main>`;
   }
 };
@@ -223,7 +225,7 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 2.5${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
+      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 3.0${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
       <p class="xs muted center">Copia en este celular: ${st.infoCopia().gastos} ${st.infoCopia().gastos === 1 ? 'gasto' : 'gastos'}, en ${esc(st.infoCopia().donde)}</p>
     </main>`;
   },

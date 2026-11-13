@@ -776,7 +776,7 @@ export function avisosDeRegistro(S, id, yo) {
       para: p.id,
       titulo: `${nombreCorto(autor)} registró un gasto`,
       cuerpo: `${que}\n${cat?.nombre || 'Sin categoría'} · ${toca}${pago}`,
-      url: `#/gasto/${g.id}`,
+      url: `#/ver/${g.id}`,
       tag: plan ? plan.id : g.id
     };
   });
