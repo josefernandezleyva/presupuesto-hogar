@@ -6,6 +6,25 @@ import { esc, fmt, fmt0, nombreMes, sumarMeses, hoy, parseMonto, mesActual } fro
 import { tituloGrande, tabbar, avatar, alerta, dinero0, dinero, chips, icono, encabezado } from '../ui.js';
 import { fraseSaldo, nombre, placa } from './comun.js';
 
+/* 3.1 · «Registrar pago» se llena en una hoja que sube desde abajo (antes, un formulario dentro de la página). */
+function formPago(c) {
+  const { S, estado: e } = c;
+  const personas = L.personas(S);
+  return `<form class="stack" data-submit="liquidar">
+    <p class="sm muted">Lo que una persona le da a la otra para saldar las cuentas del mes.</p>
+    <div class="lbl">Quién paga</div>${chips('de', personas.map((p) => ({ v: p.id, l: p.nombre })), e.de)}
+    <div class="lbl">Quién recibe</div>${chips('para', personas.map((p) => ({ v: p.id, l: p.nombre })), e.para)}
+    <label class="frow"><span class="muted">Monto (S/)</span><input class="inl" data-f="lm" inputmode="decimal" value="${esc(e.lm || '')}"></label>
+    <label class="frow"><span class="muted">Fecha</span><input type="date" class="inl" data-f="lf" value="${esc(e.lf || hoy())}"></label>
+    <button class="btn pri" type="submit">Guardar pago</button>
+  </form>`;
+}
+
+function abrirPago(c, datos) {
+  Object.assign(c.estado, { lf: hoy() }, datos);
+  c.preguntar({ titulo: 'Registrar pago', get html() { return formPago(c); }, botones: [], cancelar: 'Cancelar' });
+}
+
 const cuentas = {
   vista(c) {
     const { S, mes, estado: e } = c;
@@ -56,16 +75,9 @@ const cuentas = {
         `${prog.slice(0, 3).map((g) => `${g.nota || L.categoria(S, g.categoria_id)?.nombre} (${fmt(g.monto_soles)})`).join(', ')}${prog.length > 3 ? '…' : ''}. Al cerrar se marcan como pagados con su monto previsto${proyeccion ? ' y el saldo queda: ' + (proyeccion.length ? proyeccion.map((t) => `${L.persona(S, t.de)?.nombre} debe ${fmt(t.monto)} a ${L.persona(S, t.a)?.nombre}`).join('; ') : 'al día') : ''}.`) : ''}
 
       <section class="card">
-        <div class="split"><h2 class="h2">Pagos entre personas</h2>${!cerrado ? '<button class="link" data-a="toggle" data-k="form">Registrar pago</button>' : ''}</div>
-        ${!cerrado && trans.length && !e.form ? trans.map((t) => `<button type="button" class="row" data-a="sugerido" data-de="${esc(t.de)}" data-para="${esc(t.a)}" data-m="${t.monto}">
+        <div class="split"><h2 class="h2">Pagos entre personas</h2>${!cerrado ? '<button class="link" data-a="nuevo-pago">Registrar pago</button>' : ''}</div>
+        ${!cerrado && trans.length ? trans.map((t) => `<button type="button" class="row" data-a="sugerido" data-de="${esc(t.de)}" data-para="${esc(t.a)}" data-m="${t.monto}">
             <span class="row-m"><span class="row-t">${nombre(S, t.de)} paga ${esc(fmt(t.monto))} a ${nombre(S, t.a)}</span><span class="row-s">Toca para registrar este pago</span></span>${icono('adelante', 18)}</button>`).join('') : ''}
-        ${e.form ? `<form class="stack" data-submit="liquidar">
-          <div class="lbl">Quién paga</div>${chips('de', personas.map((p) => ({ v: p.id, l: p.nombre })), e.de)}
-          <div class="lbl">Quién recibe</div>${chips('para', personas.map((p) => ({ v: p.id, l: p.nombre })), e.para)}
-          <label class="frow"><span class="muted">Monto (S/)</span><input class="inl" data-f="lm" inputmode="decimal" value="${esc(e.lm || '')}"></label>
-          <label class="frow"><span class="muted">Fecha</span><input type="date" class="inl" data-f="lf" value="${esc(e.lf || hoy())}"></label>
-          <button class="btn pri" type="submit">Guardar pago</button>
-        </form>` : ''}
         ${liqs.length ? liqs.map((l) => `<div class="row"><span class="row-m"><span class="row-t">${nombre(S, l.de_persona_id)} → ${nombre(S, l.a_persona_id)}</span><span class="row-s">${esc(l.fecha)}</span></span><span class="amt">${dinero(l.monto_soles)}</span>
           ${!cerrado ? `<button class="btn-ic" data-a="borrar-liq" data-id="${esc(l.id)}" aria-label="Eliminar pago">${icono('cerrar', 18)}</button>` : ''}</div>`).join('') : (!trans.length || cerrado ? '<p class="muted sm">Sin pagos este mes.</p>' : '')}
       </section>
@@ -82,14 +94,16 @@ const cuentas = {
     </main>${tabbar('cierre')}`;
   },
   acciones: {
-    sugerido(c, d) {
-      Object.assign(c.estado, { form: true, de: d.de, para: d.para, lm: d.m, lf: hoy() });
-      c.render();
+    sugerido(c, d) { abrirPago(c, { de: d.de, para: d.para, lm: d.m }); },
+    'nuevo-pago'(c) {
+      const ps = L.personas(c.S);
+      abrirPago(c, { de: c.estado.de || c.meta.personaId || ps[0]?.id, para: c.estado.para || ps.find((p) => p.id !== (c.estado.de || c.meta.personaId))?.id, lm: '' });
     },
     liquidar(c) {
       const e = c.estado;
       ops.registrarLiquidacion({ mes: c.mes, de: e.de, a: e.para, monto: parseMonto(e.lm), fecha: e.lf || hoy() });
-      Object.assign(e, { form: false, lm: '' });
+      Object.assign(e, { lm: '' });
+      c.preguntar(null);
       c.avisar('Pago registrado');
     },
     'borrar-liq'(c, d) {

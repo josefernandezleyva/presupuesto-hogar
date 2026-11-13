@@ -1,5 +1,5 @@
-// Registrar o editar un gasto: descripción, monto (en soles por defecto), categoría y Guardar.
-// Arriba: el mes y quién pagó. Luego fecha, reparto y modalidad; al final, la foto.
+// Registrar o editar un gasto (3.1, como el prototipo): monto primero, descripción, categoría en chips
+// y una tarjeta de filas: fecha, mes, quién pagó, reparto, cómo se paga, si ya se pagó y el comprobante.
 // La descripción se guarda en la columna «nota» de Gastos (la misma de siempre; la hoja no cambia).
 
 import * as L from '../logic.js';
@@ -263,7 +263,7 @@ function repResumenHtml(c) {
   const origen = e.rep === 'hogar'
     ? `Como el hogar · participación ${vig.desde && vig.desde <= mesDe(e.fecha) ? `vigente desde ${esc(nombreMes(vig.desde).toLowerCase())}` : 'la primera registrada'}`
     : 'Reparto propio de este gasto';
-  return `<button type="button" class="card reparto-res" data-a="panel" data-k="reparto" aria-label="Le toca a cada uno. Toca para cambiar el reparto" ${c.estado.bloqueado ? 'disabled' : ''}>
+  return `<button type="button" class="reparto-res rr31" data-a="panel" data-k="reparto" aria-label="Le toca a cada uno. Toca para cambiar el reparto" ${c.estado.bloqueado ? 'disabled' : ''}>
     <span class="rr-h"><span class="lbl">Le toca a cada uno${cuando}</span><span class="rr-cambiar">Cambiar ${icono('adelante', 14)}</span></span>
     ${barra}
     <span class="rr-cols${ps.length > 2 ? ' muchas' : ''}">${celdas}</span>
@@ -272,16 +272,80 @@ function repResumenHtml(c) {
   </button>`;
 }
 
-/** 3.0 · Las 4 categorías más usadas en los últimos 90 días, como atajos con su ícono. */
-function frecuentesHtml(c) {
-  const { S, estado: e } = c;
+/** 3.0 · Las 4 categorías más usadas en los últimos 90 días (atajos con su ícono). */
+function frecuentes(S) {
   const desde = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
   const cuenta = new Map();
   S.Gastos.forEach((g) => { if (g.estado !== L.ESTADO.ANUL && g.fecha >= desde && g.categoria_id) cuenta.set(g.categoria_id, (cuenta.get(g.categoria_id) || 0) + 1); });
   const activas = new Set(L.categorias(S).map((x) => x.id));
   const top = [...cuenta.entries()].filter(([id]) => activas.has(id)).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([id]) => L.categoria(S, id));
-  if (top.length < 2) return '';
-  return `<div class="cat-frec" role="group" aria-label="Categorías frecuentes">${top.map((x) => `<button type="button" class="chip${e.categoria_id === x.id ? ' on' : ''}" data-a="catFrecuente" data-v="${esc(x.id)}" aria-pressed="${e.categoria_id === x.id}">${puntoCat(x)} ${esc(x.nombre)}</button>`).join('')}</div>`;
+  return top.length >= 2 ? top : [];
+}
+
+/** 3.1 · Categoría como en el prototipo: la elegida y las frecuentes como chips, y «Todas…» abre la lista completa. */
+function catFilaHtml(c, catSel, dis) {
+  const { S, estado: e } = c;
+  const top = e.bloqueado ? [] : frecuentes(S);
+  const lista = catSel && !top.some((x) => x.id === catSel.id) ? [catSel, ...top] : top;
+  const chips = lista.map((x) => {
+    const on = e.categoria_id === x.id;
+    return `<button type="button" class="chip${on ? ' on' : ''}" data-a="catFrecuente" data-v="${esc(x.id)}" aria-pressed="${on}" ${dis}>${puntoCat(x)} ${esc(x.nombre)}</button>`;
+  }).join('');
+  const todas = e.bloqueado ? '' : `<button type="button" class="chip campo-cat${lista.length ? '' : ' vacio'}" data-a="listaCat" aria-haspopup="dialog"${invalido(e, 'categoria')}>${lista.length ? 'Todas…' : `${icono('lista', 16)} Elegir categoría`}</button>`;
+  return `<div class="cat-frec" role="group" aria-labelledby="cat-l">${chips}${todas}</div>
+    ${catSel && catSel.grupo ? `<span class="xs muted cat-grupo">${esc(catSel.nombre)} · ${esc(catSel.grupo)}</span>` : ''}`;
+}
+
+/** Texto de la fila «Se paga». */
+function modoTexto(c, g, plan) {
+  const e = c.estado;
+  if (e.modalidad === 'Cuotas') return plan ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : `En ${e.nroCuotas} cuotas`;
+  if (e.modalidad === 'Recurrente') return e.repite === '0' ? 'Termina este mes' : 'Cada mes';
+  return 'Una sola vez';
+}
+
+/* 3.1 · Reparto, modalidad y quién pagó se eligen en hojas que suben desde abajo (antes, paneles en la página). */
+const TITULO_PANEL = { reparto: '¿Cómo se reparte?', modo: '¿Cómo se paga?', pago: '¿Quién pagó?' };
+
+function abrirPanel(c, k) {
+  const e = c.estado;
+  if (e.bloqueado) return;
+  e.panel = k;
+  c.preguntar({ titulo: TITULO_PANEL[k], get html() { return panelHtml(c, k); }, botones: [], cancelar: 'Listo' });
+}
+
+function panelHtml(c, k) {
+  const { S, estado: e } = c;
+  const ps = L.personas(S);
+  const mes = mesDe(e.fecha);
+  if (k === 'pago') {
+    return `<div class="op31">${ps.map((p) => `<button type="button" class="op31-b${p.id === e.pagado_por ? ' on' : ''}" data-a="elegirPagador" data-v="${esc(p.id)}" aria-pressed="${p.id === e.pagado_por}">${avatar(p, 36)}<span class="grow b">${esc(p.nombre)}</span>${p.id === e.pagado_por ? icono('check', 20) : ''}</button>`).join('')}</div>`;
+  }
+  if (k === 'modo') {
+    const g = e.id ? st.fila('Gastos', e.id) : null;
+    const plan = g?.plan_id ? L.idx(S).plan.get(g.plan_id) : null;
+    const catSel = L.categoria(S, e.categoria_id);
+    const m = parseMonto(e.monto);
+    const ctx = [e.nota && esc(e.nota), m > 0 && `<b class="num">${esc(fmt(m, { moneda: e.moneda }))}</b>`, catSel && esc(catSel.nombre)].filter(Boolean).join(' · ');
+    return `${ctx ? `<p class="sm muted modo-ctx">${ctx}</p>` : ''}<div class="stack modo31">${panelModo(c, g, plan, e.tipo || catSel?.tipo || 'Variable')}</div>`;
+  }
+  const soles = solesDelMes(c);
+  return `${soles > 0 ? `<p class="sm muted">De ${esc(fmt(soles))}, a cada uno le toca:</p>` : ''}
+    <div class="chips">
+      <button type="button" class="chip${presetActivo(c) === 'hogar' ? ' on' : ''}" data-a="preset" data-v="hogar">Hogar ${L.barrasReparto(S, L.participacion(S, mes))}</button>
+      ${ps.map((p) => `<button type="button" class="chip${presetActivo(c) === p.id ? ' on' : ''}" data-a="preset" data-v="${esc(p.id)}">Todo ${esc(p.alias || p.nombre.split(' ')[0])}</button>`).join('')}
+      ${ps.length === 2 ? `<button type="button" class="chip${presetActivo(c) === 'mitad' ? ' on' : ''}" data-a="preset" data-v="mitad">50/50</button>` : ''}
+    </div>
+    ${ps.length === 2
+      ? `<label class="sr" for="slider">Porcentaje de ${esc(ps[0].nombre)}</label>
+         <input id="slider" type="range" class="slider" min="0" max="100" step="1" data-f="slider" value="${Math.round(np(e['pct_' + ps[0].id]))}">
+         <div class="pct-pair">${ps.map((p) => `<label class="pct-box"><span class="sm">${avatar(p, 22)} ${esc(p.alias || p.nombre.split(' ')[0])}</span>
+           <span class="pct-w"><input class="inl pct" data-f="pct_${esc(p.id)}" inputmode="decimal" enterkeyhint="done" value="${esc(e['pct_' + p.id])}" aria-label="Porcentaje de ${esc(p.nombre)}"> %</span>
+           <span class="pct-m num" id="pm_${esc(p.id)}" aria-live="polite">${montoPctHtml(c, p.id)}</span></label>`).join('')}</div>
+         <p class="xs muted">Mueve la barra o escribe el porcentaje de una persona, por ejemplo 66: la otra se completa sola.</p>`
+      : ps.map((p) => `<label class="frow"><span>${avatar(p, 22)} ${esc(p.nombre)}</span><span class="pct-w"><input class="inl pct" data-f="pct_${esc(p.id)}" inputmode="decimal" value="${esc(e['pct_' + p.id])}"> %</span></label>`).join('')}
+    <div id="repDet" class="stack-sm">${detalleRepartoHtml(c)}</div>
+    <p class="rep-info xs" id="repInfo">${infoReparto(c)}</p>`;
 }
 
 /** Monto que corresponde a un porcentaje en el panel de reparto («= S/ 120.00»). */
@@ -313,7 +377,11 @@ function cuotasHtml(c) {
   if (!q.montos.length) return '<p class="muted xs">Escribe el monto total arriba.</p>';
   const ini = e.mesInicio || mesDe(e.fecha);
   const doble = q.dobles ? ` (${esc(fmt(r2(q.cuota * 2), { moneda: e.moneda }))} en ${esc(doblesTexto(e))})` : '';
-  return `<p class="sm">${q.n} cuotas de <strong>${esc(fmt(q.cuota, { moneda: e.moneda }))}</strong>${doble}, de ${esc(nombreMes(ini, { corto: true }))} a ${esc(nombreMes(sumarMeses(ini, q.n - 1), { corto: true }))}${Math.abs(q.total - parseMonto(e.monto)) > 0.004 ? ` · total ${esc(fmt(q.total, { moneda: e.moneda }))}` : ''}</p>`;
+  const lista = q.montos.slice(0, 12).map((m, i) => `<li><span class="q31-n">${i + 1}</span><span class="grow">${esc(nombreMes(sumarMeses(ini, i)))}</span><span class="num${Math.abs(m - q.cuota) > 0.004 ? ' b' : ''}">${esc(fmt(m, { moneda: e.moneda }))}</span></li>`).join('');
+  return `<p class="sm">${q.n} cuotas de <strong>${esc(fmt(q.cuota, { moneda: e.moneda }))}</strong>${doble}, de ${esc(nombreMes(ini, { corto: true }))} a ${esc(nombreMes(sumarMeses(ini, q.n - 1), { corto: true }))}${Math.abs(q.total - parseMonto(e.monto)) > 0.004 ? ` · total ${esc(fmt(q.total, { moneda: e.moneda }))}` : ''}</p>
+    <div class="split vc q31-h"><span class="lbl">Así quedan las cuotas</span><span class="num sm b">Total ${esc(fmt(q.total, { moneda: e.moneda }))}</span></div>
+    <ol class="q31">${lista}</ol>${q.n > 12 ? `<p class="xs muted">… y ${q.n - 12} cuotas más.</p>` : ''}
+    <p class="xs muted">Después puedes cambiar el total o ajustar cualquier cuota desde el plan.</p>`;
 }
 
 function recurrenteHtml(c) {
@@ -352,7 +420,7 @@ function refrescar(c, { sugs = true } = {}) {
   if (conv) { const tmp = document.createElement('div'); tmp.innerHTML = tcHtml(c); const n = tmp.querySelector('#conv'); if (n) { conv.className = n.className; conv.innerHTML = n.innerHTML; } }
   set('repDet', detalleRepartoHtml(c));
   // Solo si cambió: al salir del monto (blur) la tarjeta no se reemplaza bajo el dedo y el toque llega.
-  if (c.estado.panel !== 'reparto') { const rr = document.getElementById('repRes'); const h = repResumenHtml(c); if (rr && rr.dataset.h !== h) { rr.innerHTML = h; rr.dataset.h = h; } }
+  { const rr = document.getElementById('repRes'); const h = repResumenHtml(c); if (rr && rr.dataset.h !== h) { rr.innerHTML = h; rr.dataset.h = h; } }
   L.personas(c.S).forEach((x) => set('pm_' + x.id, montoPctHtml(c, x.id)));
   set('cuotas', cuotasHtml(c));
   set('recInfo', recurrenteHtml(c));
@@ -443,100 +511,78 @@ const pantalla = {
     const ps = L.personas(S);
     const pagador = L.persona(S, e.pagado_por);
     const catSel = L.categoria(S, e.categoria_id);
-    const tipoEf = e.tipo || catSel?.tipo || 'Variable';
-    const modoLabel = e.modalidad === 'Cuotas' ? (plan ? `Cuota ${g.nro_cuota} de ${plan.nro_cuotas}` : `${e.nroCuotas} cuotas`)
-      : e.modalidad === 'Recurrente' ? (e.repite === '0' ? 'Termina este mes' : 'Cada mes') : 'Pago único';
     const dis = bloqueado ? 'disabled' : '';
-    const pill = (k, contenido) => `<button type="button" class="pill${e.panel === k ? ' on' : ''}" data-a="panel" data-k="${k}" aria-expanded="${e.panel === k}" ${dis}>${contenido}</button>`;
     const tieneEv = conEvidencia(c, g);
     const nombreCorto = pagador?.alias || pagador?.nombre?.split(' ')[0] || '';
-    const quien = `<button type="button" class="hdr-quien${e.panel === 'pago' ? ' on' : ''}" data-a="${ps.length === 2 ? 'pagador' : 'panel'}" data-k="pago" ${dis} aria-label="Pagó ${esc(pagador?.nombre || '')}. Toca para cambiar">
-      ${avatar(pagador, 28)}<span class="hdr-quien-t"><span class="hdr-quien-l">Pagó</span><span>${esc(nombreCorto)}</span></span>${ps.length > 1 && !bloqueado ? icono('cambiar', 14) : ''}</button>`;
+    const flecha = bloqueado ? '' : `<span class="f31-ir" aria-hidden="true">${icono('adelante', 16)}</span>`;
+    // 3.1 · Filas de detalle como en el prototipo: etiqueta a la izquierda, valor a la derecha.
+    const fila = (k, attrs, v, extra = '') => `<button type="button" class="f31${extra ? ' ' + extra : ''}" ${attrs} ${dis}><span class="f31-k">${k}</span><span class="f31-v">${v}</span>${flecha}</button>`;
 
-    return `${encabezado({ titulo: edit ? 'Editar gasto' : 'Nuevo gasto', derecha: quien, clase: 'izq' })}
-    <main class="pad form has-footer">
-      <div class="mes-reg" role="group" aria-label="Mes del gasto">
-        <button type="button" class="btn-ic" data-a="mesReg" data-d="-1" aria-label="Mes anterior" ${dis}>${icono('atras', 22)}</button>
-        <div class="mes-reg-t"><span class="lbl">Mes del gasto</span><strong>${esc(nombreMes(mes))}</strong>${cerrado ? ' <span class="badge">Cerrado</span>' : ''}</div>
-        <button type="button" class="btn-ic" data-a="mesReg" data-d="1" aria-label="Mes siguiente" ${dis}>${icono('adelante', 22)}</button>
-      </div>
-      ${!edit && e.fecha !== hoy() ? `<button type="button" class="link center-self" data-a="mesHoy">Usar la fecha de hoy</button>` : ''}
-      ${cerrado && !bloqueado ? alerta('warn', `${nombreMes(mes)} está cerrado`, edit ? 'No se puede cambiar. El administrador puede reabrirlo en Cierre de mes.' : 'Cambia la fecha a un mes abierto o pide al administrador que lo reabra.') : ''}
+    return `<header class="top reg-top">
+      <button type="button" class="link reg-cancel" data-a="atras">${bloqueado ? 'Volver' : 'Cancelar'}</button>
+      <h1 class="top-t">${edit ? 'Editar gasto' : 'Nuevo gasto'}</h1>
+      <span class="reg-top-d"></span>
+    </header>
+    <main class="pad form has-footer reg31">
+      ${cerrado && !bloqueado ? alerta('warn', `${nombreMes(mes)} está cerrado`, edit ? 'No se puede cambiar. El administrador puede reabrirlo en Cuentas.' : 'Cambia la fecha a un mes abierto o pide al administrador que lo reabra.') : ''}
       ${bloqueado ? alerta('warn', anulado ? 'Este gasto está anulado' : `${nombreMes(g.mes)} está cerrado`, anulado ? 'No cuenta en los totales.' : 'Solo se puede ver.') : ''}
-      ${plan ? `<p class="muted sm">${plan.modalidad === 'Cuotas' ? `<a class="link" href="#/plan/${esc(plan.id)}">Cuota ${esc(g.nro_cuota)} de ${esc(plan.nro_cuotas)}</a>` : 'Gasto mensual'} · ${esc(plan.descripcion)} · ${g.estado === L.ESTADO.CONF ? 'Pagado' : g.estado === L.ESTADO.PROG ? 'Por pagar' : esc(g.estado)}</p>` : ''}
+      ${plan ? `<p class="muted sm center">${plan.modalidad === 'Cuotas' ? `<a class="link" href="#/plan/${esc(plan.id)}">Cuota ${esc(g.nro_cuota)} de ${esc(plan.nro_cuotas)}</a>` : 'Gasto mensual'} · ${esc(plan.descripcion)} · ${g.estado === L.ESTADO.CONF ? 'Pagado' : g.estado === L.ESTADO.PROG ? 'Por pagar' : esc(g.estado)}</p>` : ''}
 
-      ${e.panel === 'pago' && ps.length > 2 ? `<section class="card panel">
-        <div class="lbl">¿Quién pagó?</div>
-        <div class="chips">${ps.map((p) => `<button type="button" class="chip${p.id === e.pagado_por ? ' on' : ''}" data-a="set" data-k="pagado_por" data-v="${esc(p.id)}">${avatar(p, 24)} ${esc(p.nombre)}</button>`).join('')}</div>
-      </section>` : ''}
-
-      <div class="campo-desc${e.falta?.campo === 'nota' ? ' error' : ''}" data-err="nota">
-        <label class="lbl" for="nota">Descripción</label>
-        <input id="nota" class="input desc-i" data-f="nota" data-keep maxlength="${ops.MAX_DESCRIPCION}" autocomplete="off" autocapitalize="sentences" enterkeyhint="next" placeholder="¿En qué gastaste? Ej.: Supermercado" value="${esc(e.nota)}" aria-required="true"${invalido(e, 'nota')} ${dis}>
-        ${errorDe(e, 'nota')}
-        ${e.notaPropuesta && !bloqueado ? '<p class="xs muted">Este gasto no tenía descripción: se propone el nombre de la categoría. Puedes cambiarla.</p>' : ''}
-      </div>
-      <div id="sugBox">${bloqueado ? '' : sugerenciasHtml(c)}</div>
-
-      <section class="amount${e.falta?.campo === 'monto' ? ' error' : ''}" data-err="monto">
-        <span class="monto-s" aria-hidden="true">${SIMBOLO[e.moneda]}</span>
-        <label class="sr" for="monto">${e.modalidad === 'Cuotas' && !plan ? 'Monto total' : 'Monto'}</label>
-        <input id="monto" class="monto-i" data-f="monto" data-keep inputmode="decimal" autocomplete="off" enterkeyhint="done" placeholder="0.00" value="${esc(e.monto)}"${invalido(e, 'monto')} ${dis}>
+      <section class="monto31${e.falta?.campo === 'monto' ? ' error' : ''}" data-err="monto">
         <div class="cur-seg" role="group" aria-label="Moneda">
           <button type="button" class="${e.moneda === 'PEN' ? 'on' : ''}" data-a="moneda" data-v="PEN" aria-pressed="${e.moneda === 'PEN'}" ${dis}>S/</button>
           <button type="button" class="${e.moneda === 'USD' ? 'on' : ''}" data-a="moneda" data-v="USD" aria-pressed="${e.moneda === 'USD'}" ${dis}>US$</button>
         </div>
+        <div class="amount">
+          <span class="monto-s" aria-hidden="true">${SIMBOLO[e.moneda]}</span>
+          <label class="sr" for="monto">${e.modalidad === 'Cuotas' && !plan ? 'Monto total' : 'Monto'}</label>
+          <input id="monto" class="monto-i" data-f="monto" data-keep inputmode="decimal" autocomplete="off" enterkeyhint="next" placeholder="0.00" value="${esc(e.monto)}"${invalido(e, 'monto')} ${dis}>
+        </div>
+        ${e.modalidad === 'Cuotas' && !plan ? '<span class="xs muted">Monto total: se reparte en las cuotas</span>' : ''}
       </section>
       ${errorDe(e, 'monto')}
       <div id="tcbox">${tcHtml(c)}</div>
       ${errorDe(e, 'tc')}
 
-      <button type="button" class="campo-cat${catSel ? '' : ' vacio'}${e.falta?.campo === 'categoria' ? ' error' : ''}" data-a="listaCat" data-err="categoria" ${dis} aria-haspopup="dialog"${invalido(e, 'categoria')}>
-        <span class="row-m"><span class="lbl">Categoría</span>
-          <span class="campo-v">${catSel ? `${puntoCat(catSel)} ${esc(catSel.nombre)} <span class="muted">· ${esc(catSel.grupo || 'Otros')}</span>` : 'Elige una categoría'}</span></span>
-        ${icono('adelante', 18)}</button>
-      ${!bloqueado ? frecuentesHtml(c) : ''}
-      ${errorDe(e, 'categoria')}
-      <div id="uso">${usoHtml(c)}</div>
+      <div class="campo-desc${e.falta?.campo === 'nota' ? ' error' : ''}" data-err="nota">
+        <label class="lbl" for="nota">Descripción</label>
+        <input id="nota" class="input desc-i" data-f="nota" data-keep maxlength="${ops.MAX_DESCRIPCION}" autocomplete="off" autocapitalize="sentences" enterkeyhint="done" placeholder="¿En qué gastaste? Ej.: Supermercado" value="${esc(e.nota)}" aria-required="true"${invalido(e, 'nota')} ${dis}>
+        ${errorDe(e, 'nota')}
+        ${e.notaPropuesta && !bloqueado ? '<p class="xs muted">Este gasto no tenía descripción: se propone el nombre de la categoría. Puedes cambiarla.</p>' : ''}
+      </div>
+      <div id="sugBox">${bloqueado ? '' : sugerenciasHtml(c)}</div>
 
-      <div class="pills" role="group" aria-label="Fecha, reparto y modalidad">
-        <label class="pill pill-date${bloqueado ? ' off' : ''}">${icono('calendario', 16)}<span>${esc(fechaCorta(e.fecha))}</span>${bloqueado ? '' : `<span class="pill-cambiar" aria-hidden="true">▾</span>`}
+      <div class="cat31${e.falta?.campo === 'categoria' ? ' error' : ''}" data-err="categoria">
+        <span class="lbl" id="cat-l">Categoría</span>
+        ${catFilaHtml(c, catSel, dis)}
+        ${errorDe(e, 'categoria')}
+        <div id="uso">${usoHtml(c)}</div>
+      </div>
+
+      <section class="card det31" aria-label="Detalle del gasto">
+        <label class="f31 pill-date${bloqueado ? ' off' : ''}"><span class="f31-k">Fecha</span><span class="f31-v">${esc(fechaCorta(e.fecha))}</span>${flecha}
           <input type="date" data-f="fecha" data-r value="${esc(e.fecha)}" aria-label="Fecha del gasto: ${esc(fechaCorta(e.fecha))}. Toca para cambiarla" ${dis}></label>
-        ${pill('reparto', `${icono('reparto', 16)}<span id="pillRep">${esc(etiquetaReparto(c))}</span>`)}
-        ${pill('modo', `${icono('repetir', 16)}<span>${esc(modoLabel)}</span>${e.dobles.length ? ' <span class="badge soft">×2</span>' : ''}`)}
-      </div>
-      ${e.panel === 'reparto' || ps.length < 2 ? `<p class="rep-info xs" id="repInfo">${infoReparto(c)}</p>` : ''}
-      <div id="repRes">${e.panel === 'reparto' ? '' : repResumenHtml(c)}</div>
-
-      ${!anulado ? `<section class="card pago-card${e.pagado === '1' ? ' pagado' : ' por-pagar'}" aria-labelledby="pago-t">
-        <div class="split vc"><span id="pago-t" class="b">¿Ya se pagó?</span>${segmentado('pagado', [{ v: '1', l: 'Pagado' }, { v: '0', l: 'Por pagar' }], e.pagado, '¿Ya se pagó?')}</div>
-        <p class="xs muted" id="pagoInfo">${pagoInfo(c, plan)}</p>
-      </section>` : ''}
-
-      ${e.panel === 'reparto' ? `<section class="card panel">
-        <div class="lbl">¿Cómo se reparte este gasto?</div>
-        <div class="chips">
-          <button type="button" class="chip${presetActivo(c) === 'hogar' ? ' on' : ''}" data-a="preset" data-v="hogar">Hogar ${L.barrasReparto(S, L.participacion(S, mes))}</button>
-          ${ps.map((p) => `<button type="button" class="chip${presetActivo(c) === p.id ? ' on' : ''}" data-a="preset" data-v="${esc(p.id)}">Todo ${esc(p.alias || p.nombre.split(' ')[0])}</button>`).join('')}
-          ${ps.length === 2 ? `<button type="button" class="chip${presetActivo(c) === 'mitad' ? ' on' : ''}" data-a="preset" data-v="mitad">50/50</button>` : ''}
+        <div class="f31 mes31" role="group" aria-label="Mes del gasto">
+          <span class="f31-k">Mes</span>
+          <span class="mes-reg-c">
+            <button type="button" class="btn-ic" data-a="mesReg" data-d="-1" aria-label="Mes anterior" ${dis}>${icono('atras', 20)}</button>
+            <span class="mes-reg-t"><strong>${esc(nombreMes(mes))}</strong>${cerrado ? ' <span class="badge">Cerrado</span>' : ''}</span>
+            <button type="button" class="btn-ic" data-a="mesReg" data-d="1" aria-label="Mes siguiente" ${dis}>${icono('adelante', 20)}</button>
+          </span>
         </div>
-        ${ps.length === 2
-          ? `<label class="sr" for="slider">Porcentaje de ${esc(ps[0].nombre)}</label>
-             <input id="slider" type="range" class="slider" min="0" max="100" step="1" data-f="slider" value="${Math.round(np(e['pct_' + ps[0].id]))}">
-             <div class="pct-pair">${ps.map((p) => `<label class="pct-box"><span class="sm">${avatar(p, 22)} ${esc(p.alias || p.nombre.split(' ')[0])}</span>
-               <span class="pct-w"><input class="inl pct" data-f="pct_${esc(p.id)}" inputmode="decimal" enterkeyhint="done" value="${esc(e['pct_' + p.id])}" aria-label="Porcentaje de ${esc(p.nombre)}"> %</span>
-               <span class="pct-m num" id="pm_${esc(p.id)}" aria-live="polite">${montoPctHtml(c, p.id)}</span></label>`).join('')}</div>
-             <p class="xs muted">Mueve la barra o escribe el porcentaje de una persona, por ejemplo 66: la otra se completa sola.</p>`
-          : ps.map((p) => `<label class="frow"><span>${avatar(p, 22)} ${esc(p.nombre)}</span><span class="pct-w"><input class="inl pct" data-f="pct_${esc(p.id)}" inputmode="decimal" value="${esc(e['pct_' + p.id])}"> %</span></label>`).join('')}
-        <div id="repDet" class="stack-sm">${detalleRepartoHtml(c)}</div>
-      </section>` : ''}
-
-      ${e.panel === 'modo' ? `<section class="card panel stack">${panelModo(c, g, plan, tipoEf)}</section>` : ''}
-
-      <div class="pills pills-fin" role="group" aria-label="Foto">
-        <label class="pill pill-file${tieneEv ? ' on' : ''}${bloqueado ? ' off' : ''}">${icono('foto', 16)}<span>${tieneEv ? 'Foto' : 'Agregar foto'}</span>
+        ${!edit && e.fecha !== hoy() ? `<button type="button" class="link f31-hoy" data-a="mesHoy">Usar la fecha de hoy</button>` : ''}
+        ${ps.length > 1 ? fila('Pagó', `data-a="${ps.length === 2 ? 'pagador' : 'panel'}" data-k="pago" aria-label="Pagó ${esc(pagador?.nombre || '')}. Toca para cambiar"`,
+          `${avatar(pagador, 24)} ${esc(nombreCorto)}${ps.length === 2 && !bloqueado ? ` <span class="f31-cambio">${icono('cambiar', 14)}</span>` : ''}`, 'fila-pago') : ''}
+        ${ps.length > 1 ? fila('Reparto', 'data-a="panel" data-k="reparto" aria-haspopup="dialog"', `<span id="pillRep">${esc(etiquetaReparto(c))}</span>`) : ''}
+        ${ps.length > 1 ? `<div id="repRes" class="f31-sub">${repResumenHtml(c)}</div>` : ''}
+        ${fila('Se paga', 'data-a="panel" data-k="modo" aria-haspopup="dialog"', `${esc(modoTexto(c, g, plan))}${e.dobles.length ? ' <span class="badge soft">×2</span>' : ''}`)}
+        ${!anulado ? `<div class="f31 pago-card${e.pagado === '1' ? ' pagado' : ' por-pagar'}">
+          <span class="f31-k" id="pago-t">¿Ya se pagó?</span>${segmentado('pagado', [{ v: '1', l: 'Pagado' }, { v: '0', l: 'Por pagar' }], e.pagado, '¿Ya se pagó?')}
+        </div>
+        <p class="xs muted f31-nota" id="pagoInfo">${pagoInfo(c, plan)}</p>` : ''}
+        <label class="f31 pill-file${tieneEv ? ' on' : ''}${bloqueado ? ' off' : ''}"><span class="f31-k">Comprobante</span><span class="f31-v link-t">${tieneEv ? 'Foto lista' : 'Agregar foto'}</span><span class="f31-ir" aria-hidden="true">${icono('foto', 18)}</span>
           <input type="file" accept="image/*" data-file="ev" aria-label="Agregar foto o captura del gasto" ${dis}></label>
-      </div>
+      </section>
 
       <div id="evBox">${evCardHtml(c, g, bloqueado)}</div>
 
@@ -550,18 +596,23 @@ const pantalla = {
 
   montar(raiz, c) {
     const e = c.estado;
-    // En un gasto nuevo el cursor empieza en la descripción, el dato principal.
+    // 3.1: en un gasto nuevo el cursor empieza en el monto, que ahora va primero.
     if (!e.id && !e.montado) {
       e.montado = true;
-      const d = raiz.querySelector('#nota');
+      const d = raiz.querySelector(e.monto ? '#nota' : '#monto');
       // Solo si la persona todavía no tocó otro campo (si ya está escribiendo el monto, no se le quita).
       if (d) setTimeout(() => { const a = document.activeElement; if (!a || a === document.body || a === d || !a.closest?.('main')) d.focus(); }, 60);
     }
-    // «Siguiente» en el teclado: de la descripción al monto, con el teclado numérico.
+    // «Listo» en el teclado de la descripción lo cierra; en el monto, «Siguiente» pasa a la descripción.
     const nota = raiz.querySelector('#nota');
     if (nota && !nota.dataset.enter) {
       nota.dataset.enter = '1';
-      nota.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); raiz.querySelector('#monto')?.focus(); } });
+      nota.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); nota.blur(); } });
+    }
+    const monto = raiz.querySelector('#monto');
+    if (monto && !monto.dataset.enter) {
+      monto.dataset.enter = '1';
+      monto.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); raiz.querySelector('#nota')?.focus(); } });
     }
     const alElegirFoto = (inp) => inp.addEventListener('change', async () => {
       const file = inp.files && inp.files[0];
@@ -648,7 +699,7 @@ const pantalla = {
       if (x.categoria_id) { e.categoria_id = x.categoria_id; if (!e.tipoManual) e.tipo = ''; }
       if (e.falta?.campo === 'nota' || e.falta?.campo === 'categoria') e.falta = null;
       c.render();
-      setTimeout(() => document.getElementById('monto')?.focus(), 30);
+      if (!parseMonto(e.monto)) setTimeout(() => document.getElementById('monto')?.focus(), 30);
     },
     elegirCat(c, d) {
       const e = c.estado;
@@ -696,9 +747,10 @@ const pantalla = {
       c.estado.pagado_por = ps[(i + 1) % ps.length].id;
       c.render();
     },
-    panel(c, d) {
-      c.estado.panel = c.estado.panel === d.k ? null : d.k;
-      c.render();
+    panel(c, d) { abrirPanel(c, d.k); },
+    elegirPagador(c, d) {
+      c.estado.pagado_por = d.v;
+      c.preguntar(null);
     },
     preset(c, d) {
       const e = c.estado;
@@ -745,7 +797,7 @@ const pantalla = {
       }
       e.falta = null;
       const pcts = pctsElegidos(c);
-      if (pcts && L.sumaPcts(pcts) !== 100) { e.panel = 'reparto'; c.render(); throw new ops.ErrorApp('El reparto debe sumar 100 %.'); }
+      if (pcts && L.sumaPcts(pcts) !== 100) { abrirPanel(c, 'reparto'); throw new ops.ErrorApp('El reparto debe sumar 100 %.'); }
       if (e.dobles.length && !c.meta.demo && (num(c.meta.schemaServidor) || 3) < 4 && (!e.planOrig || e.dobles.join(',') !== e.planOrig.dobles)) {
         throw new ops.ErrorApp('Las cuotas dobles necesitan el Code.gs de la versión 1.4 o posterior en la hoja. Pide al dueño de la hoja que lo actualice.');
       }
@@ -863,7 +915,7 @@ function panelModo(c, g, plan, tipoEf) {
       ${doblesHtml(e, 'Lo que falta pagar se reparte de nuevo desde este mes.')}
       ${tipo}`;
   }
-  return `${segmentado('modalidad', [{ v: 'Unico', l: 'Pago único' }, { v: 'Cuotas', l: 'En cuotas' }, { v: 'Recurrente', l: 'Cada mes' }], e.modalidad, 'Modalidad')}
+  return `${segmentado('modalidad', [{ v: 'Unico', l: 'Una vez' }, { v: 'Cuotas', l: 'En cuotas' }, { v: 'Recurrente', l: 'Cada mes' }], e.modalidad, 'Modalidad')}
     ${g && e.modalidad !== 'Unico' ? `<p class="xs muted">Este gasto pasa a ser ${e.modalidad === 'Cuotas' ? 'la primera cuota' : 'el primer mes'} del plan, con su foto.</p>` : ''}
     ${e.modalidad === 'Cuotas' ? `
       <div class="frow"><span class="muted">Cuotas</span>
@@ -871,7 +923,7 @@ function panelModo(c, g, plan, tipoEf) {
       <label class="frow"><span class="muted">Primera cuota</span><input type="month" class="inl" data-f="mesInicio" data-r value="${esc(e.mesInicio)}"></label>
       <label class="frow"><span class="muted">Cuota con intereses</span><input class="inl" data-f="montoCuota" inputmode="decimal" placeholder="Opcional" value="${esc(e.montoCuota)}"></label>
       ${doblesHtml(e)}
-      <div id="cuotas">${cuotasHtml(c)}</div>` : ''}
+      <div id="cuotas" class="stack-sm">${cuotasHtml(c)}</div>` : ''}
     ${e.modalidad === 'Recurrente' ? `
       ${segmentado('sinFin', [{ v: '1', l: 'Sin fin' }, { v: '0', l: 'Por meses' }], e.sinFin, 'Duración')}
       ${e.sinFin === '0' ? `<label class="frow"><span class="muted">Meses</span><input class="inl" data-f="durN" inputmode="numeric" value="${esc(e.durN)}"></label>` : ''}

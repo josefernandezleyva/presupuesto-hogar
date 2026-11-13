@@ -65,10 +65,10 @@ export function barraMes(mes, { derecha = '', cerrado = false } = {}) {
 
 /** Barra de pestañas (3.0): Inicio, Gastos, Presupuesto y Cuentas; el + registra. Ajustes, desde el avatar de Inicio. */
 export function tabbar(activa) {
-  const t = (ruta, ic, label) => `<a href="#/${ruta}" class="tab${activa === ruta ? ' on' : ''}"${activa === ruta ? ' aria-current="page"' : ''}>${icono(ic, 24)}<span>${label}</span></a>`;
+  // 3.1 · Cinco lugares con el + al centro: Inicio · Gastos · + · Plan · Cuentas (nombres cortos: no se salen del botón).
+  const t = (ruta, ic, label, aria = '') => `<a href="#/${ruta}" class="tab${activa === ruta ? ' on' : ''}"${activa === ruta ? ' aria-current="page"' : ''}${aria ? ` aria-label="${aria}"` : ''}>${icono(ic, 24)}<span>${label}</span></a>`;
   return `<nav class="tabbar" aria-label="Secciones">
-    <div class="tabgroup">${t('inicio', 'inicio', 'Inicio')}${t('gastos', 'lista', 'Gastos')}${t('cierre', 'cuentas', 'Cuentas')}${t('analisis', 'grafico', 'Presupuesto')}</div>
-    <a href="#/nuevo" class="tab-add" aria-label="Registrar gasto">${icono('mas', 28)}</a>
+    <div class="tabgroup">${t('inicio', 'inicio', 'Inicio')}${t('gastos', 'lista', 'Gastos')}<a href="#/nuevo" class="tab-add" aria-label="Registrar gasto">${icono('mas', 28)}</a>${t('analisis', 'grafico', 'Plan', 'Plan: presupuesto del mes')}${t('cierre', 'cuentas', 'Cuentas')}</div>
   </nav>`;
 }
 
@@ -76,15 +76,16 @@ export function tabbar(activa) {
  * Título grande de una pestaña, como en iOS: el nombre arriba y, al bajar, una barra compacta de cristal.
  * `mes` agrega el selector de mes bajo el título.
  */
-export function tituloGrande({ titulo, sub = '', derecha = '', mes = null, cerrado = false }) {
-  return `<header class="lt">
-    <div class="lt-bar"><span class="lt-mini" aria-hidden="true">${esc(titulo)}${mes ? ' · ' + esc(nombreMes(mes, { corto: true })) : ''}</span><span class="lt-acc">${derecha}</span></div>
-    <div class="lt-head">${sub ? `<div class="lt-sub">${sub}</div>` : ''}<h1 class="lt-t">${esc(titulo)}</h1></div>
-    ${mes ? `<div class="lt-mes" role="group" aria-label="Mes">
+export function tituloGrande({ titulo, sub = '', derecha = '', mes = null, cerrado = false, mini = '', mesCompacto = false }) {
+  const selMes = (compacto) => `<div class="lt-mes${compacto ? ' compacto' : ''}" role="group" aria-label="Mes: ${esc(nombreMes(mes))}">
       <button class="btn-ic" data-a="mes" data-d="-1" aria-label="Mes anterior">${icono('atras', 22)}</button>
-      <span class="lt-mes-t">${esc(nombreMes(mes))}${cerrado ? ' <span class="badge">Cerrado</span>' : ''}</span>
+      <span class="lt-mes-t">${compacto ? `${esc(nombreMes(mes, { anio: false }).slice(0, 3))} ${esc(mes.slice(0, 4))}` : esc(nombreMes(mes))}${cerrado ? ' <span class="badge">Cerrado</span>' : ''}</span>
       <button class="btn-ic" data-a="mes" data-d="1" aria-label="Mes siguiente">${icono('adelante', 22)}</button>
-    </div>` : ''}
+    </div>`;
+  return `<header class="lt">
+    <div class="lt-bar"><span class="lt-mini" aria-hidden="true">${esc(mini || titulo)}${mes ? ' · ' + esc(nombreMes(mes, { corto: true })) : ''}</span><span class="lt-acc">${derecha}</span></div>
+    <div class="lt-head${mes && mesCompacto ? ' lt-head-mes' : ''}">${sub ? `<div class="lt-sub">${sub}</div>` : ''}<h1 class="lt-t">${esc(titulo)}</h1>${mes && mesCompacto ? selMes(true) : ''}</div>
+    ${mes && !mesCompacto ? selMes(false) : ''}
   </header>`;
 }
 

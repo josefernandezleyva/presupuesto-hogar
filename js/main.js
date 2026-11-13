@@ -385,21 +385,21 @@ st.cargarCopia().catch(() => 'local').then(async (r) => {
   mostrarNovedadesVersion();
 });
 
-/** Una sola vez: qué cambió en la 3.0 y dónde quedó cada cosa (solo a quien ya usaba la app). */
+/** Una sola vez: qué cambió en la 3.1 y dónde quedó cada cosa (solo a quien ya usaba la app). */
 function mostrarNovedadesVersion() {
   const meta = st.getMeta();
-  if (meta.visto30) return;
-  st.setMeta({ visto20: true, visto30: true });
+  if (meta.visto31) return;
+  st.setMeta({ visto20: true, visto30: true, visto31: true });
   if (puerta() || (!meta.ultimoSync && !meta.demo)) return; // instalación nueva: no hay nada que comparar
   preguntar({
-    titulo: 'Novedades de la versión 3.0',
+    titulo: 'Novedades de la versión 3.1',
     html: `<ul class="nuevo20">
-      <li><b>Inicio</b> muestra primero cuánto les queda, y en <b>Pendientes</b> lo que pide acción.</li>
-      <li><b>Presupuesto</b> es una pestaña: el mes, las tendencias (lo que era Análisis) y lo próximo.</li>
-      <li>Al tocar un gasto se abre su <b>detalle</b>; para cambiarlo, toca Editar.</li>
-      <li>En Gastos, <b>Todos · Por pagar · Pagados</b> a la vista, y cada categoría con su ícono.</li>
-      <li><b>Cerrar el mes</b> se hace en 3 pasos, desde Cuentas.</li>
-      <li>Hogar y ajustes, ordenado: para ti, el hogar y los datos.</li>
+      <li>El botón <b>+</b> quedó al centro de la barra: <b>Inicio · Gastos · + · Plan · Cuentas</b>. «Plan» es el presupuesto del mes.</li>
+      <li><b>Registrar</b> empieza por el monto. Debajo, una tarjeta con fecha, quién pagó, reparto, cómo se paga, si ya se pagó y la foto.</li>
+      <li>El reparto y las cuotas se eligen en una hoja que sube desde abajo, con la lista de cómo quedan las cuotas.</li>
+      <li>En Gastos, la búsqueda y <b>Filtros</b> van juntos; la persona se elige dentro de Filtros.</li>
+      <li>En Cuentas, «Registrar pago» se llena en una hoja aparte.</li>
+      <li>Tus datos no cambian: todo sigue en la misma hoja de Google.</li>
     </ul>`,
     botones: [{ l: 'Entendido', estilo: 'pri' }],
     cancelar: 'Cerrar'

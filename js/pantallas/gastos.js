@@ -5,8 +5,8 @@ import { tituloGrande, tabbar, avatar, dinero, vacio, icono } from '../ui.js';
 import { puntoCat, placaCat } from './comun.js';
 import { segmentado } from '../ui.js';
 
-/** Filtros activos sobre la lista del mes (persona aparte, en los chips). */
-const nFiltros = (e) => [e.ft, e.fc].filter(Boolean).length;
+/** 3.1 · Filtros activos (tipo, categoría y persona; todos en la hoja «Filtros»). */
+const nFiltros = (e) => [e.ft, e.fc, e.fp].filter(Boolean).length;
 
 function filtrar(c) {
   const { S, mes, estado: e } = c;
@@ -43,7 +43,7 @@ function listaHtml(c) {
       <h3 class="dia">${esc(fechaCorta(fecha))}</h3>
       <div class="card list">
         ${gs.map((g) => item(c, g, cerrado)).join('')}
-      </div>`).join('') : vacio(nFiltros(e) || e.fp ? 'No hay gastos con estos filtros.' : 'Todavía no hay gastos este mes.', nFiltros(e) || e.fp ? '<button class="btn sec" data-a="limpiar">Quitar filtros</button>' : '<a class="btn pri" href="#/nuevo">Registrar gasto</a>')}
+      </div>`).join('') : vacio(nFiltros(e) || e.fe ? 'No hay gastos con estos filtros.' : 'Todavía no hay gastos este mes.', nFiltros(e) || e.fe ? '<button class="btn sec" data-a="limpiar">Quitar filtros</button>' : '<a class="btn pri" href="#/nuevo">Registrar gasto</a>')}
     ${anulados ? `<p class="muted xs center">${anulados} ${anulados === 1 ? 'gasto anulado no se muestra' : 'gastos anulados no se muestran'}.</p>` : ''}`;
 }
 
@@ -58,25 +58,25 @@ export default {
   vista(c) {
     const { S, mes, estado: e } = c;
     const cerrado = L.mesCerrado(S, mes);
-    // Con el nombre corto los chips caben sin cortarse (José, Mayra).
-    const personas = [{ v: '', l: 'Todos' }, ...L.personas(S).map((p) => ({ v: p.id, l: p.alias || String(p.nombre).split(' ')[0] }))];
     const n = nFiltros(e);
     const nProg = L.gastosMes(S, mes, [L.ESTADO.PROG]).length;
     const buscando = !!String(e.q || '').trim();
-    return `<main class="pad has-tabs${buscando ? ' buscando' : ''}">
-      ${tituloGrande({ titulo: 'Gastos', mes, cerrado, derecha: `<a class="btn-ic round" href="#/reporte" aria-label="Reporte de gastos">${icono('reporte', 21)}</a>` })}
-      <div class="buscar" role="search">
-        ${icono('buscar', 18)}
-        <label class="sr" for="q">Buscar gastos</label>
-        <input id="q" type="search" class="buscar-i" data-f="q" data-keep placeholder="Buscar en todos los meses" autocomplete="off" enterkeyhint="search" value="${esc(e.q || '')}">
-        <button type="button" class="buscar-x" data-a="borrar-q" aria-label="Borrar búsqueda">×</button>
+    const cat = e.fc ? L.categoria(S, e.fc) : null;
+    const per = e.fp ? L.persona(S, e.fp) : null;
+    const activos = [e.ft && ['ft', e.ft === 'Fijo' ? 'Fijos' : 'Variables'], cat && ['fc', cat.nombre], per && ['fp', `Parte de ${per.alias || String(per.nombre).split(' ')[0]}`]].filter(Boolean);
+    return `<main class="pad has-tabs gastos31${buscando ? ' buscando' : ''}">
+      ${tituloGrande({ titulo: 'Gastos', mes, cerrado, mesCompacto: true, derecha: `<a class="btn-ic round" href="#/reporte" aria-label="Reporte de gastos">${icono('reporte', 21)}</a>` })}
+      <div class="buscar-fila">
+        <div class="buscar" role="search">
+          ${icono('buscar', 18)}
+          <label class="sr" for="q">Buscar gastos</label>
+          <input id="q" type="search" class="buscar-i" data-f="q" data-keep placeholder="Buscar gastos" autocomplete="off" enterkeyhint="search" value="${esc(e.q || '')}">
+          <button type="button" class="buscar-x" data-a="borrar-q" aria-label="Borrar búsqueda">×</button>
+        </div>
+        <button type="button" class="btn sec filtro-b${n ? ' on' : ''}" data-a="filtros" aria-label="Filtros${n ? `, ${n} activos` : ''}">${icono('filtro', 18)}<span>Filtros${n ? ` · ${n}` : ''}</span></button>
       </div>
       <div class="seg-estado">${segmentado('fe', [{ v: '', l: 'Todos' }, { v: 'Programado', l: nProg ? `Por pagar · ${nProg}` : 'Por pagar' }, { v: 'Confirmado', l: 'Pagados' }], e.fe, 'Estado')}</div>
-      <div class="filtros-fila" role="group" aria-label="Filtrar gastos">
-        <button type="button" class="chip filtro-b${n ? ' on' : ''}" data-a="filtros" aria-label="Filtros${n ? `, ${n} activos` : ''}">${icono('filtro', 16)} Filtros${n ? ` · ${n}` : ''}</button>
-        <span class="filtros-sep" aria-hidden="true"></span>
-        ${personas.map((o) => `<button type="button" class="chip${String(o.v) === String(e.fp) ? ' on' : ''}" data-a="set" data-k="fp" data-v="${esc(o.v)}" aria-pressed="${String(o.v) === String(e.fp)}">${esc(o.l)}</button>`).join('')}
-      </div>
+      ${activos.length ? `<div class="filtros-fila" role="group" aria-label="Filtros activos">${activos.map(([k, l]) => `<button type="button" class="chip on" data-a="quitar-f" data-k="${k}" aria-label="Quitar filtro ${esc(l)}">${esc(l)} <span aria-hidden="true">×</span></button>`).join('')}</div>` : ''}
       <div id="lista">${listaHtml(c)}</div>
     </main>${tabbar('gastos')}`;
   },
@@ -97,14 +97,16 @@ export default {
       const op = (v, l, sel) => `<option value="${esc(v)}"${String(v) === String(sel || '') ? ' selected' : ''}>${esc(l)}</option>`;
       c.preguntar({
         titulo: 'Filtros',
-        html: `<label class="lbl" for="f-t">Tipo</label><select id="f-t" name="ft" class="select">${op('', 'Todos', e.ft)}${op('Fijo', 'Fijos', e.ft)}${op('Variable', 'Variables', e.ft)}</select>
+        html: `${L.personas(S).length > 1 ? `<label class="lbl" for="f-p">Persona <span class="muted">(se ve solo su parte de cada gasto)</span></label><select id="f-p" name="fp" class="select">${op('', 'Todos', e.fp)}${L.personas(S).map((p) => op(p.id, p.nombre, e.fp)).join('')}</select>` : ''}
+          <label class="lbl" for="f-t">Tipo</label><select id="f-t" name="ft" class="select">${op('', 'Todos', e.ft)}${op('Fijo', 'Fijos', e.ft)}${op('Variable', 'Variables', e.ft)}</select>
           <label class="lbl" for="f-c">Categoría</label><select id="f-c" name="fc" class="select">${op('', 'Todas', e.fc)}${L.categoriasPorGrupo(S, { todas: true }).map(({ grupo, cats: cs }) => `<optgroup label="${esc(grupo.nombre)}">${cs.map((x) => op(x.id, x.nombre, e.fc)).join('')}</optgroup>`).join('') || cats.map((x) => op(x.id, x.nombre, e.fc)).join('')}</select>`,
         botones: [
-          { l: 'Aplicar', estilo: 'pri', fn: (c2, v) => { Object.assign(c2.estado, { ft: v.ft, fc: v.fc }); c2.render(); } },
-          { l: 'Quitar filtros', estilo: 'sec', fn: (c2) => { Object.assign(c2.estado, { ft: '', fc: '' }); c2.render(); } }
+          { l: 'Aplicar', estilo: 'pri', fn: (c2, v) => { Object.assign(c2.estado, { ft: v.ft, fc: v.fc, fp: v.fp || '' }); c2.render(); } },
+          { l: 'Quitar filtros', estilo: 'sec', fn: (c2) => { Object.assign(c2.estado, { ft: '', fc: '', fp: '' }); c2.render(); } }
         ]
       });
     },
+    'quitar-f'(c, d) { c.estado[d.k] = ''; c.render(); },
     limpiar(c) { Object.assign(c.estado, { ft: '', fc: '', fe: '', fp: '' }); c.render(); },
     'borrar-q'(c) { c.estado.q = ''; c.render(); },
     // 2.2: «Pagado» marca un gasto por pagar como pagado; el aviso trae «Deshacer» por si fue un toque errado.

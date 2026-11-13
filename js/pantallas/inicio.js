@@ -12,9 +12,18 @@ import { pendientes } from '../store.js';
 
 const corto = (p) => esc(p?.alias || String(p?.nombre || '').split(' ')[0] || '');
 
-function saludo() {
-  const h = new Date().getHours();
-  return h < 12 ? 'Buenos días' : h < 19 ? 'Buenas tardes' : 'Buenas noches';
+// 3.1 · Encabezado como el prototipo: la fecha de hoy arriba y «Hola, <nombre>» grande.
+const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+function fechaHoy() {
+  const d = new Date();
+  return `${DIAS[d.getDay()]} ${d.getDate()} de ${nombreMes(mesActual(), { anio: false }).toLowerCase()}`;
+}
+
+/** La línea de sincronización solo aparece cuando dice algo útil (cambios por subir, sincronizando, modo de ejemplo o datos viejos). */
+function syncNecesaria(c) {
+  if (c.meta.demo || c.sync.corriendo || pendientes() > 0 || !c.sync.ultimo) return true;
+  if (c.sync.error) return false; // ya lo dice la tarjeta «Sin conexión»
+  return Date.now() - new Date(c.sync.ultimo).getTime() > 30 * 60 * 1000;
 }
 
 export default {
@@ -73,9 +82,9 @@ export default {
       </section>`;
 
     return `<main class="pad has-tabs inicio">
-      ${tituloGrande({ titulo: 'Inicio', sub: `${saludo()}, ${corto(yo)}`, derecha: acciones, mes, cerrado })}
+      ${tituloGrande({ titulo: yo ? `Hola, ${String(yo.alias || String(yo.nombre || '').split(' ')[0] || '')}` : 'Inicio', mini: 'Inicio', sub: esc(fechaHoy()), derecha: acciones, mes, cerrado })}
       ${c.sync.error && !meta.demo ? `<section class="card sin-red" role="status">${placa('sinConexion', '#B26B00', 40)}<span class="row-m"><span class="row-t">${navigator.onLine === false ? 'Sin conexión' : 'No se pudo sincronizar'}</span><span class="row-s">${pendientes() ? (pendientes() === 1 ? '1 cambio espera en este celular y se enviará solo.' : `${pendientes()} cambios esperan en este celular y se enviarán solos.`) : 'Tus datos están a salvo en este celular.'}</span></span><button class="btn sec mini" data-a="sync">Reintentar</button></section>` : ''}
-      <div class="sync-fila">${lineaSync(c)}${botonSync(c)}</div>
+      ${syncNecesaria(c) ? `<div class="sync-fila">${lineaSync(c)}${botonSync(c)}</div>` : ''}
       ${hero}
 
       ${r.excedePresupuesto ? alerta('bad', 'Superaron el presupuesto del mes', `Gasto y compromisos suman ${dinero0(usado)}, ${dinero0(usado - r.presupuesto)} sobre el presupuesto.`) : ''}
