@@ -21,7 +21,15 @@ export async function manejarDemo(req) {
     return ev ? { ok: true, ...ev } : { ok: false, error: 'evidencia_no_existe' };
   }
   const srv = leer();
-  if (req.action === 'ping') return { ok: true, schema: 4, serverTime: Date.now() };
+  const rec = () => ({ activos: true, ultimo: '', silencio: srv.silencio || [] });
+  if (req.action === 'ping') return { ok: true, schema: 4, serverTime: Date.now(), recordatorios: rec() };
+  if (req.action === 'silenciar') {
+    const s = (srv.silencio || []).filter((x) => x !== req.id);
+    if (req.silenciar !== false) s.push(req.id);
+    srv.silencio = s;
+    try { localStorage.setItem(KEY, JSON.stringify(srv)); } catch { return { ok: false, error: 'almacenamiento' }; }
+    return { ok: true, silencio: s };
+  }
   if (req.action !== 'sync') return { ok: false, error: 'accion_desconocida' };
   const since = Number(req.since) || 0;
   let ts = Math.max(Date.now(), srv.ts + 1);
@@ -44,7 +52,7 @@ export async function manejarDemo(req) {
   Object.entries(srv.tablas).forEach(([t, tabla]) => {
     changes[t] = Object.values(tabla).filter((r) => r.server_ts > since || forced[t]?.has(r.id));
   });
-  return { ok: true, schema: 4, changes, accepted, maxTs: srv.ts, serverTime: Date.now() };
+  return { ok: true, schema: 4, changes, accepted, maxTs: srv.ts, serverTime: Date.now(), recordatorios: rec() };
 }
 
 export function borrarDemo() {

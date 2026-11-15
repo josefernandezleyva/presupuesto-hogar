@@ -6,7 +6,26 @@ import * as ops from '../ops.js';
 import * as st from '../store.js';
 import { esc, num, fmt, fechaCorta, nombreMes, sumarMeses } from '../util.js';
 import { encabezado, avatar, icono, vacio } from '../ui.js';
-import { placaCat, placa, sinMonto, montoTxt, marcarPagado, pedirAnular, pedirRestaurar } from './comun.js';
+import { placaCat, placa, sinMonto, montoTxt, marcarPagado, pedirAnular, pedirRestaurar, silenciado } from './comun.js';
+import { llamar, mensajeError } from '../api.js';
+
+/** 3.4 · Tarjeta de recordatorios de un gasto por pagar: qué avisos llegan y el interruptor para silenciarlos. */
+function tarjetaRecordatorio(c, g, plan) {
+  const { meta } = c;
+  if (!meta.demo && !meta.url) return '';
+  const rec = meta.recordatorios;
+  const sil = silenciado(meta, g);
+  const cuando = sinMonto(g) ? 'El día programado y cada 3 días, hasta que tenga monto.' : '1 día antes, el día del vencimiento y al día siguiente si sigue pendiente.';
+  const sub = !rec ? 'La hoja tiene un Code.gs anterior: el dueño debe pegar el de la 2.1 para recibir recordatorios.'
+    : sil ? `Silenciado: no llegarán recordatorios de ${plan?.modalidad === 'Recurrente' ? 'este gasto mensual' : 'este pago'}.`
+    : !rec.activos ? cuando + ' Falta activarlos en la hoja: Presupuesto › Activar recordatorios.'
+    : cuando + ` Le llegan a ${esc(L.persona(c.S, g.pagado_por)?.alias || String(L.persona(c.S, g.pagado_por)?.nombre || 'quien paga').split(' ')[0])}.`;
+  return `<section class="card det-rec">
+    <span class="det-rec-i${sil ? ' off' : ''}">${icono(sil ? 'campanaNo' : 'campana', 22)}</span>
+    <span class="row-m"><span class="row-t">Recordatorios</span><span class="row-s">${sub}</span></span>
+    ${rec ? `<button type="button" class="interruptor" role="switch" aria-checked="${!sil}" aria-label="Recordatorios de este pago" data-a="silenciar" data-id="${esc(g.id)}"><span></span></button>` : ''}
+  </section>`;
+}
 
 /** 3.3 · ¿El gasto mensual sigue después de este mes? (sin fin o con un último mes posterior). */
 const terminaDespues = (plan, g) => !num(plan.duracion_meses) || sumarMeses(plan.mes_inicio, num(plan.duracion_meses) - 1) > g.mes;
@@ -67,6 +86,8 @@ export default {
         </a>
         ${plan.modalidad === 'Recurrente' && plan.estado !== 'Cancelado' && !anulado && !cerrado && terminaDespues(plan, g) ? `<button type="button" class="btn sec det-terminar" data-a="terminar" data-id="${esc(g.id)}">Terminar en ${esc(nombreMes(g.mes, { anio: false }).toLowerCase())}</button>` : ''}` : ''}
 
+        ${g.estado === L.ESTADO.PROG && !cerrado ? tarjetaRecordatorio(c, g, plan) : ''}
+
         ${g.evidencia_url || g.evidencia_id ? `<a class="card det-foto" href="${esc(g.evidencia_url || '#/gasto/' + g.id)}" ${g.evidencia_url ? 'target="_blank" rel="noopener"' : ''}>${icono('foto', 22)}<span class="grow b">Ver la foto del comprobante</span>${icono('adelante', 18)}</a>`
           : !anulado && !cerrado ? `<a class="card det-foto" href="#/gasto/${esc(g.id)}">${icono('foto', 22)}<span class="grow b">Agregar foto del comprobante</span>${icono('adelante', 18)}</a>` : ''}
 
@@ -87,6 +108,30 @@ export default {
         c.avisar('Vuelve a estar por pagar', '', { l: 'Deshacer', fn: (c2) => { ops.confirmarGasto(d.id); c2.avisar('Marcado como pagado'); } });
       },
       restaurar(c, d) { pedirRestaurar(c, d.id); },
+      // 3.4 · «No recordar este pago»: se guarda en el Code.gs (vale para todos los celulares del hogar).
+      async silenciar(c, d) {
+        const g = st.fila('Gastos', d.id);
+        if (!g) return;
+        const meta = st.getMeta();
+        const ya = silenciado(meta, g);
+        const cambiar = async (silenciar) => {
+          // Al silenciar se usa el gasto mensual completo; al reactivar se quitan los dos.
+          const actual = st.getMeta().recordatorios?.silencio || [];
+          const ids = silenciar ? [g.plan_id || g.id] : [g.id, g.plan_id].filter((x) => x && actual.includes(x));
+          let lista = actual;
+          for (const id of ids) {
+            const res = await llamar(st.getMeta(), { action: 'silenciar', id, silenciar });
+            if (!res || !res.ok) throw new Error(res?.error || 'respuesta_invalida');
+            lista = res.silencio || [];
+          }
+          st.setMeta({ recordatorios: { ...(st.getMeta().recordatorios || {}), silencio: lista } });
+        };
+        try {
+          await cambiar(!ya);
+          c.render();
+          c.avisar(ya ? 'Volverán los recordatorios de este pago' : 'Listo: no se recordará este pago', '', { l: 'Deshacer', fn: async (c2) => { try { await cambiar(ya); c2.render(); } catch (e) { c2.avisar(mensajeError(e.message), 'bad'); } } });
+        } catch (e) { c.avisar(mensajeError(e.message), 'bad'); }
+      },
       // 3.3: terminar un gasto mensual en este mes (por ejemplo, en julio): este mes queda y se anulan los siguientes.
       terminar(c, d) {
         const g = st.fila('Gastos', d.id);

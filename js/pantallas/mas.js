@@ -7,6 +7,7 @@ import { esc, fmt, fmt0, nombreMes, sumarMeses, parseMonto, num, r2, mesActual, 
 import { encabezado, barraMes, tabbar, fila, avatar, icono, alerta, segmentado, dinero0 } from '../ui.js';
 import { lineaSync, tarjetaPropuesta, usarPropuesta, placa } from './comun.js';
 import { borrarDemo } from '../demo.js';
+import { leerMascota, guardarMascota, svgDe, COLORES as COLORES_MASC, NOMBRES as NOMBRES_MASC, EDAD as EDAD_MASC, UMBRAL as UMBRAL_MASC } from '../mascota.js';
 import { pendientes as fotosPendientes, procesarCola, estadoCola } from '../evidencia.js';
 import { mensajeError } from '../api.js';
 import { ACENTOS, PERSONAL, colorDe, MODOS, ESTILOS, MATERIALES, ESQUINAS, ICONOS, leerTema, guardarTema, leerIcono, guardarIcono, AUTO_TIPOS, modoEfectivo, textoAutomatico, elegirAspecto, ponerAutomatico, lugarSol, solDelDia, horaCorta } from '../tema.js';
@@ -45,11 +46,12 @@ const menu = {
       <h3 class="sec-t">Datos y conexión</h3>
       <section class="card list">
         ${fila({ izq: placa('compromisos', '#6B4FA0', 34), titulo: 'Compromisos', sub: 'Cuotas y gastos mensuales que vienen', der: flecha, href: '#/compromisos' })}
+        ${fila({ izq: placa('porPagar', '#B4532A', 34), titulo: 'Calendario de pagos', sub: 'Qué se paga cada día del mes', der: flecha, href: '#/calendario' })}
         ${fila({ izq: placa('regla', '#2F5D8A', 34), titulo: 'Reporte de gastos', sub: 'Filtrar, agrupar y exportar a Excel', der: flecha, href: '#/reporte' })}
         ${(() => { const n = S.Gastos.filter((g) => g.estado === L.ESTADO.ANUL).length; return fila({ izq: placa('anulado', '#9B2C1F', 34), titulo: 'Gastos anulados', sub: n ? `${n} para revisar o restaurar` : 'Ninguno por ahora', der: flecha, href: '#/anulados' }); })()}
         ${fila({ izq: placa(c.sync.error ? 'sinConexion' : 'nubeOk', c.sync.error ? '#B26B00' : 'var(--accent)', 34), titulo: 'Ajustes y sincronización', sub: lineaSync(c).replace(/<[^>]+>/g, ''), der: flecha, href: '#/ajustes' })}
       </section>
-      <p class="xs muted center">Presupuesto del Hogar · versión 3.3</p>
+      <p class="xs muted center">Presupuesto del Hogar · versión 3.4</p>
     </main>`;
   }
 };
@@ -112,21 +114,28 @@ const presupuesto = {
     const { S, mes, estado: e, admin } = c;
     const cats = L.categorias(S);
     const r = L.resumenMes(S, mes);
+    const sug = L.topesSugeridos(S, mes);
     let suma = 0;
+    let distintos = 0;
     const filas = cats.map((cat) => {
       const k = 't_' + cat.id;
       if (e[k] === undefined) e[k] = String(L.tope(S, mes, cat.id) || '');
       suma += num(parseMonto(e[k]) || 0);
       const uso = r.porCategoria.find((f) => f.cat.id === cat.id);
       const propio = !!L.topeExplicito(S, mes, cat.id);
-      return `<label class="frow"><span class="row-m"><span class="row-t">${esc(cat.nombre)}</span><span class="row-s">${uso?.usado ? 'Lleva ' + esc(fmt0(uso.usado)) : 'Sin gasto'}${!propio && L.tope(S, mes, cat.id) ? ' · viene de un mes anterior' : ''}</span></span>
-        <span class="pct-w">S/ <input class="inl num" data-f="${k}" inputmode="decimal" placeholder="Sin tope" value="${esc(e[k])}" ${admin ? '' : 'disabled'}></span></label>`;
+      const s = sug.porCat.get(cat.id);
+      const difiere = s && Math.abs(s - (parseMonto(e[k]) || 0)) > 0.5;
+      if (difiere) distintos++;
+      return `<div class="frow tope34"><label class="row-m" for="${k}"><span class="row-t">${esc(cat.nombre)}</span><span class="row-s">${uso?.usado ? 'Lleva ' + esc(fmt0(uso.usado)) : 'Sin gasto'}${!propio && L.tope(S, mes, cat.id) ? ' · viene de un mes anterior' : ''}</span>
+        ${difiere && admin ? `<button type="button" class="chip sug-tope" data-a="usar-tope" data-id="${esc(cat.id)}" aria-label="Usar el promedio ${esc(fmt0(s))} para ${esc(cat.nombre)}">Promedio ${esc(fmt0(s))} · usar</button>` : ''}</label>
+        <span class="pct-w">S/ <input id="${k}" class="inl num" data-f="${k}" inputmode="decimal" placeholder="Sin tope" value="${esc(e[k])}" ${admin ? '' : 'disabled'}></span></div>`;
     });
     return `${encabezado({ titulo: 'Presupuesto y topes' })}
     <main class="pad">
       ${barraMes(mes)}
       <p class="muted sm">El tope de cada categoría se mantiene en los meses siguientes hasta que lo cambies. El presupuesto del mes es la suma de los topes. Las alertas salen al ${L.umbral(S)} % del tope.</p>
       ${!admin ? alerta('info', 'Solo el administrador cambia los topes') : ''}
+      ${admin && distintos ? `<section class="card sug34">${placa('regla', '#2F5D8A', 36)}<div class="row-m"><span class="row-t">Topes sugeridos</span><span class="row-s">Según lo que pagaron en ${sug.meses === 1 ? 'el mes anterior' : `los últimos ${sug.meses} meses`} (promedio por categoría, redondeado).</span></div><button type="button" class="btn sec mini" data-a="usar-topes">Usar todos</button></section>` : ''}
       <section class="card list">${filas.join('')}</section>
       <p class="sum-l" id="sumaTopes">Presupuesto del mes: <strong>${esc(fmt0(suma))}</strong></p>
       ${admin ? '<div class="actions"><button class="btn pri" data-a="guardar">Guardar topes</button></div>' : ''}
@@ -139,6 +148,17 @@ const presupuesto = {
     if (el) el.innerHTML = `Presupuesto del mes: <strong>${esc(fmt0(suma))}</strong>`;
   },
   acciones: {
+    'usar-tope'(c, d) {
+      const s = L.topesSugeridos(c.S, c.mes).porCat.get(d.id);
+      if (s) { c.estado['t_' + d.id] = String(s); c.render(); }
+    },
+    'usar-topes'(c) {
+      const sug = L.topesSugeridos(c.S, c.mes);
+      let n = 0;
+      sug.porCat.forEach((v, id) => { if (L.categoria(c.S, id) && L.activo(L.categoria(c.S, id))) { c.estado['t_' + id] = String(v); n++; } });
+      c.render();
+      c.avisar(n === 1 ? '1 tope sugerido: revísalo y toca Guardar' : `${n} topes sugeridos: revísalos y toca Guardar`);
+    },
     guardar(c) {
       const topes = {};
       L.categorias(c.S).forEach((cat) => {
@@ -205,7 +225,7 @@ const ajustes = {
         <button class="btn sec" data-a="sync">${icono('sync', 18)} Sincronizar ahora</button>
         <div id="fotosCola"></div>
         ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) < 4 ? alerta('warn', 'La hoja tiene un Code.gs anterior', 'Los grupos y las cuotas dobles esperan en este celular hasta que el dueño de la hoja pegue el Code.gs de la versión 2.0 y publique una nueva versión.') : ''}
-        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) >= 4 && meta.codigoServidor !== '2.0' ? `<p class="xs muted">La hoja tiene el Code.gs ${esc(meta.codigoServidor || '1.4')}: todo funciona, salvo los avisos al celular, que necesitan el de la 2.0.</p>` : ''}
+        ${!meta.demo && meta.url && meta.ultimoSync && (num(meta.schemaServidor) || 3) >= 4 && (parseFloat(meta.codigoServidor) || 0) < 2.1 ? `<p class="xs muted">La hoja tiene el Code.gs ${esc(meta.codigoServidor || '1.4')}: todo funciona, salvo ${(parseFloat(meta.codigoServidor) || 0) < 2 ? 'los avisos al celular y los recordatorios, que necesitan' : 'los recordatorios de pagos, que necesitan'} el de la 2.1.</p>` : ''}
         ${!meta.demo ? `<p class="xs muted ell">Hoja: ${esc(meta.url || '')}</p>` : ''}
       </section>
       ${admin && !meta.demo ? `<h3 class="dia">Sumar otro celular</h3>
@@ -226,7 +246,7 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 3.3${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
+      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 3.4${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
       <p class="xs muted center">Copia en este celular: ${st.infoCopia().gastos} ${st.infoCopia().gastos === 1 ? 'gasto' : 'gastos'}, en ${esc(st.infoCopia().donde)}</p>
     </main>`;
   },
@@ -317,6 +337,7 @@ const apariencia = {
         <button type="button" class="btn pri" data-a="copiar-icono">${icono('copiar', 18)} Copiar enlace con este ícono</button>
         <p class="xs muted">${instalada ? 'Los datos están en la hoja, así que no se pierden. Antes de borrar el ícono anterior, revisa en Ajustes que no queden cambios por subir.' : 'Como estás en Safari, puedes tocar Compartir › Agregar a inicio ahora mismo.'} El enlace trae el código del hogar: no lo compartas fuera de la familia.</p>
       </section>` : '<p class="xs muted">Elige el ícono que verás en la pantalla de inicio del iPhone.</p>'}
+      ${seccionMascota()}
       <h3 class="dia">Diseño</h3>
       ${segmentadoTema('estilo', ESTILOS, t.estilo, 'Diseño')}
       <p class="xs muted">${glass ? 'Liquid Glass: tarjetas, botones y barras de cristal que dejan ver el color de fondo, con la barra de pestañas flotante.' : 'Clásico: superficies sólidas y planas.'}</p>
@@ -372,9 +393,36 @@ const apariencia = {
     estilo(c, d) { guardarTema({ estilo: d.v }); c.render(); },
     material(c, d) { guardarTema({ material: d.v }); c.render(); },
     esquinas(c, d) { guardarTema({ esquinas: d.v }); c.render(); },
-    concentrico(c, d) { guardarTema({ concentrico: d.v === '1' }); c.render(); }
+    concentrico(c, d) { guardarTema({ concentrico: d.v === '1' }); c.render(); },
+    'masc-ver'(c) { const v = !leerMascota().ver; guardarMascota({ ver: v }); c.render(); if (v) c.avisar('Sencillito pasea por Inicio, Gastos, Plan y Cuentas'); },
+    'masc-sonido'(c) { guardarMascota({ sonido: !leerMascota().sonido }); c.render(); },
+    'masc-color'(c, d) { guardarMascota({ color: d.v }); c.render(); }
   }
 };
+
+/** 3.4 · Mascota: Sencillito, opcional y solo en este celular. */
+function seccionMascota() {
+  const m = leerMascota();
+  const sig = m.monedas < UMBRAL_MASC[2] ? 2 : m.monedas < UMBRAL_MASC[3] ? 3 : null;
+  const desde = sig === 3 ? UMBRAL_MASC[2] : 0;
+  const prog = sig ? Math.round((m.monedas - desde) / (UMBRAL_MASC[sig] - desde) * 100) : 100;
+  const [a, l, d] = COLORES_MASC[m.color].c;
+  return `<h3 class="dia">Mascota</h3>
+  <section class="card masc-aj">
+    <div class="masc-aj-cab">
+      <div class="masc-prev" style="--cr:${a};--cr-light:${l};--cr-dark:${d}">${svgDe(m.etapa)}</div>
+      <div class="row-m"><span class="row-t">${esc(NOMBRES_MASC[m.etapa])}, el perrito ahorrador</span>
+        <span class="xs muted">${m.ver ? `${esc(EDAD_MASC[m.etapa].charAt(0).toUpperCase() + EDAD_MASC[m.etapa].slice(1))} · ${m.monedas === 1 ? '1 moneda' : m.monedas + ' monedas'}` : 'Pasea sobre la barra de pestañas y te cuenta cómo va el mes.'}</span></div>
+      <button type="button" class="interruptor" role="switch" aria-checked="${m.ver}" aria-label="Mostrar a la mascota" data-a="masc-ver"><span></span></button>
+    </div>
+    ${m.ver ? `<div class="masc-prog"><span class="track"><span class="fill ok" style="width:${prog}%"></span></span><span class="xs muted">${sig ? `${UMBRAL_MASC[sig] - m.monedas} ${UMBRAL_MASC[sig] - m.monedas === 1 ? 'moneda' : 'monedas'} para ${EDAD_MASC[sig]}` : 'Ya es adulto'}</span></div>
+    <div class="ajuste-fila sep"><span class="ajuste-t"><span>Ladridos</span><span class="xs muted">Suenan solo cuando lo tocas</span></span>
+      <button type="button" class="interruptor" role="switch" aria-checked="${m.sonido}" aria-label="Ladridos" data-a="masc-sonido"><span></span></button></div>
+    <div class="ajuste-fila sep"><span class="ajuste-t"><span>Collar</span></span>
+      <span class="masc-cols" role="group" aria-label="Color del collar">${Object.entries(COLORES_MASC).map(([k, v]) => `<button type="button" class="masc-col${k === m.color ? ' on' : ''}" style="background:${v.c[0]}" data-a="masc-color" data-v="${k}" aria-pressed="${k === m.color}" aria-label="${esc(v.l)}"></button>`).join('')}</span></div>` : ''}
+  </section>
+  <p class="xs muted">Solo en este celular. Tócalo para que te cuente algo del mes, mantenlo presionado para acariciarlo y arrástralo para moverlo. Gana una moneda por cada gasto que anotas y crece: cachorro, joven y adulto. Se esconde al escribir y en las hojas.</p>`;
+}
 
 /** Celular en miniatura para elegir Claro u Oscuro (como en Ajustes › Pantalla y brillo). */
 const miniTel = (modo) => `<span class="mini-tel ${modo}" aria-hidden="true">

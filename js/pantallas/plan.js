@@ -22,6 +22,7 @@ export function compromisosHtml(c) {
         <div class="big">${dinero0(total)}</div>
         ${total > 0 ? barras(meses.map((m) => ({ label: nombreMes(m.mes, { corto: true, anio: false }), valor: m.monto, clase: 'soft' })), { aria: 'Monto programado por mes' }) : ''}
       </section>
+      <a class="card row cal-link" href="#/calendario">${icono('calendario', 22)}<span class="row-m"><span class="row-t">Calendario de pagos</span><span class="row-s">Qué se paga cada día de este mes</span></span>${icono('adelante', 18)}</a>
       <h3 class="dia">Por mes</h3>
       <section class="card list">
         ${meses.filter((m) => m.monto > 0).map((m) => `<button type="button" class="row" data-a="ver-mes" data-m="${esc(m.mes)}">

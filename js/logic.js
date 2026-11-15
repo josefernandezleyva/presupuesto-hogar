@@ -782,3 +782,62 @@ export function avisosDeRegistro(S, id, yo) {
     };
   });
 }
+
+/* ------------------------------------------------------------ 3.4 · UX --- */
+
+/**
+ * Proyección del mes en curso: lo pagado + lo por pagar + lo que se gastaría en los días que faltan
+ * al ritmo del gasto del día a día (los pagos sin plan ya hechos este mes). Es una estimación.
+ */
+export function proyeccionMes(S, mes, hoyStr) {
+  if (hoyStr.slice(0, 7) !== mes) return null;
+  const r = resumenMes(S, mes);
+  const dia = Number(hoyStr.slice(8, 10));
+  const faltan = diasEnMes(mes) - dia;
+  const variable = gastosMes(S, mes, [ESTADO.CONF]).filter((g) => !g.plan_id && String(g.fecha) <= hoyStr).reduce((a, g) => a + num(g.monto_soles), 0);
+  const ritmo = dia > 0 ? variable / dia : 0;
+  const extra = r2(ritmo * faltan);
+  const proyectado = r2(r.gastado + r.comprometido + extra);
+  return {
+    dia, faltan, ritmo: r2(ritmo), extra, gastado: r.gastado, porPagar: r.comprometido, proyectado,
+    ingreso: r.ingreso, presupuesto: r.presupuesto,
+    margen: r.ingreso > 0 ? r2(r.ingreso - proyectado) : null,
+    sobrePresupuesto: r.presupuesto > 0 ? r2(proyectado - r.presupuesto) : null,
+    confiable: dia >= 5
+  };
+}
+
+/**
+ * Monto sugerido para un gasto sin monto: el último pagado del mismo gasto mensual
+ * (o, si no tiene plan, de la misma descripción y categoría).
+ */
+export function montoSugerido(S, g) {
+  if (!g) return null;
+  const mismo = (x) => (g.plan_id ? x.plan_id === g.plan_id : x.categoria_id === g.categoria_id && norm(x.nota) === norm(g.nota) && !!norm(g.nota));
+  const prev = S.Gastos.filter((x) => x.id !== g.id && x.estado === ESTADO.CONF && Number(x.eliminado) !== 1 && num(x.monto) > 0 && mismo(x) && String(x.mes) <= String(g.mes))
+    .sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0))[0];
+  return prev ? { monto: num(prev.monto), moneda: prev.moneda || 'PEN', mes: prev.mes, id: prev.id } : null;
+}
+
+/** Tope sugerido por categoría: el promedio de lo pagado en los 3 meses anteriores (redondeado hacia arriba a 10). */
+export function topesSugeridos(S, mes) {
+  const meses = [1, 2, 3].map((n) => sumarMeses(mes, -n)).filter((m) => gastosMes(S, m, [ESTADO.CONF]).length);
+  const out = new Map();
+  if (!meses.length) return { meses: 0, porCat: out };
+  const suma = new Map();
+  meses.forEach((m) => gastosMes(S, m, [ESTADO.CONF]).forEach((g) => suma.set(g.categoria_id, (suma.get(g.categoria_id) || 0) + num(g.monto_soles))));
+  suma.forEach((v, k) => { const p = v / meses.length; if (p > 0) out.set(k, Math.ceil(p / 10) * 10); });
+  return { meses: meses.length, porCat: out };
+}
+
+/** Gastos del mes por día (pagados y por pagar), para el calendario de pagos. */
+export function calendarioMes(S, mes) {
+  const dias = new Map();
+  gastosMes(S, mes).forEach((g) => {
+    const d = Number(String(g.fecha).slice(8, 10)) || 1;
+    if (!dias.has(d)) dias.set(d, []);
+    dias.get(d).push(g);
+  });
+  dias.forEach((l) => l.sort((a, b) => (a.estado === b.estado ? num(b.monto_soles) - num(a.monto_soles) : a.estado === ESTADO.PROG ? -1 : 1)));
+  return dias;
+}

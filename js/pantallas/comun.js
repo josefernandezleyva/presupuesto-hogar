@@ -2,7 +2,7 @@
 
 import { iconoDe, svg } from '../iconos.js';
 import * as L from '../logic.js';
-import { esc, fmt, nombreMes, num, fechaCorta } from '../util.js';
+import { esc, fmt, fmt0, nombreMes, num, fechaCorta } from '../util.js';
 import { icono } from '../ui.js';
 import { mensajeError } from '../api.js';
 import { pendientes, foto } from '../store.js';
@@ -27,17 +27,25 @@ export function marcarPagado(c, id) {
   if (!g) return;
   const listo = (c2) => c2.avisar('Marcado como pagado', '', { l: 'Deshacer', fn: (c3) => { ops.desconfirmarGasto(id); c3.avisar('Vuelve a estar por pagar'); } });
   if (!sinMonto(g)) { ops.confirmarGasto(id); listo(c); return; }
+  // 3.4 · Si ya se pagó otro mes, se sugiere ese monto (a un toque).
+  const sug = L.montoSugerido(foto(), g);
+  const sugTxt = sug ? fmt(sug.monto, { moneda: sug.moneda }) : '';
   c.preguntar({
     titulo: '¿Cuánto fue?',
     html: `<p class="sm">«${esc(nombreGasto(g))}» no tiene monto todavía. Escríbelo para marcarlo como pagado.</p>
-      <label class="frow"><span class="muted">Monto (${g.moneda === 'USD' ? 'US$' : 'S/'})</span><input class="inl" name="monto" inputmode="decimal" autocomplete="off" placeholder="0.00" aria-label="Monto del recibo"></label>`,
+      <label class="frow"><span class="muted">Monto (${g.moneda === 'USD' ? 'US$' : 'S/'})</span><input class="inl" name="monto" inputmode="decimal" autocomplete="off" placeholder="${sug ? esc(String(sug.monto)) : '0.00'}" aria-label="Monto del recibo"></label>
+      ${sug ? `<p class="xs muted">En ${esc(nombreMes(sug.mes, { anio: false }).toLowerCase())} fue ${esc(sugTxt)}.</p>` : ''}`,
     botones: [{ l: 'Marcar como pagado', estilo: 'pri', mantener: true, fn: (c2, v) => {
       const m = num(String(v.monto || '').replace(/,/g, ''));
       if (!(m > 0)) throw new ops.ErrorApp('Escribe cuánto fue.');
       ops.confirmarGasto(id, m);
       c2.preguntar(null);
       listo(c2);
-    } }]
+    } }, ...(sug && sug.moneda === (g.moneda || 'PEN') ? [{ l: `Usar ${sugTxt}, como en ${nombreMes(sug.mes, { anio: false }).toLowerCase()}`, estilo: 'sec', mantener: true, fn: (c2) => {
+      ops.confirmarGasto(id, sug.monto);
+      c2.preguntar(null);
+      listo(c2);
+    } }] : [])]
   });
 }
 
@@ -221,3 +229,51 @@ export function pedirRestaurar(c, id, { despues = null } = {}) {
     ]
   });
 }
+
+/* ------------------------------------------------------------------ 3.4 --- */
+
+/**
+ * 3.4 · Cómo cerraría el mes: pagado + por pagar + lo estimado para los días que faltan, contra los ingresos
+ * (o el presupuesto, si no hay ingresos). Es informativo: no bloquea nada.
+ */
+export function tarjetaProyeccion(p, mes) {
+  if (!p || !(p.proyectado > 0) || !(p.ingreso > 0 || p.presupuesto > 0)) return '';
+  const ref = p.ingreso > 0 ? p.ingreso : p.presupuesto;
+  const refTxt = p.ingreso > 0 ? 'los ingresos' : 'el presupuesto';
+  const escala = Math.max(ref, p.proyectado) || 1;
+  const w = (n) => Math.max(0, Math.min(100, n / escala * 100)).toFixed(1);
+  const pasa = p.proyectado > ref + 0.004;
+  const nm = nombreMes(mes, { anio: false });
+  return `<section class="card proy34" aria-label="Proyección de ${esc(nm.toLowerCase())}">
+    <div class="split vc"><h2 class="h2">Así cerraría ${esc(nm.toLowerCase())}</h2><span class="badge">estimado</span></div>
+    <div class="proy-n"><span class="mid num">${esc(fmt0(p.proyectado))}</span><span class="sm muted">${!p.faltan ? 'último día del mes' : p.ritmo > 0 ? 'al ritmo de ' + esc(fmt0(p.ritmo)) + ' por día' : 'con lo pagado y lo por pagar'}</span></div>
+    <div class="proy-bar${pasa ? ' pasa' : ''}" role="img" aria-label="Pagado ${esc(fmt0(p.gastado))}, por pagar ${esc(fmt0(p.porPagar))}, estimado ${esc(fmt0(p.extra))}; ${esc(refTxt)} ${esc(fmt0(ref))}">
+      <span class="g" style="width:${w(p.gastado)}%"></span><span class="c" style="width:${w(p.porPagar)}%"></span><span class="e" style="width:${w(p.extra)}%"></span>
+      <i class="ref" style="left:${w(ref)}%"></i>
+    </div>
+    <div class="leyenda sm"><span><i class="g"></i>Pagado ${esc(fmt0(p.gastado))}</span><span><i class="c"></i>Por pagar ${esc(fmt0(p.porPagar))}</span>${p.extra > 0 ? `<span><i class="e"></i>Faltan ${p.faltan} días ≈ ${esc(fmt0(p.extra))}</span>` : ''}</div>
+    <p class="sm proy-r ${pasa ? 'warn-t' : 'ok-t'}">${pasa ? `Se pasarían de ${refTxt} (${esc(fmt0(ref))}) por <b class="num">${esc(fmt0(p.proyectado - ref))}</b>.` : `Quedarían <b class="num">${esc(fmt0(ref - p.proyectado))}</b> de ${refTxt} (${esc(fmt0(ref))}).`}</p>
+    ${p.confiable ? '' : '<p class="xs muted">Con pocos días del mes, la estimación todavía es gruesa.</p>'}
+  </section>`;
+}
+
+/** 3.4 · Aviso de sobregiro: los gastos del mes (pagados + por pagar) ya superan los ingresos. Solo informa. */
+export function tarjetaSobregiro(r, mes) {
+  if (!r.excedeIngreso) return '';
+  const usado = r.gastado + r.comprometido;
+  const nm = nombreMes(mes, { anio: false });
+  return `<section class="card sobregiro34" role="status">
+    ${placa('excedido', '#B26B00', 40)}
+    <div class="row-m"><span class="row-t">${esc(nm)} se pasa de los ingresos</span>
+      <span class="row-s">Pagado ${esc(fmt0(r.gastado))} + por pagar ${esc(fmt0(r.comprometido))} = <b class="num">${esc(fmt0(usado))}</b>. Entran ${esc(fmt0(r.ingreso))}: se pasan por <b class="num">${esc(fmt0(usado - r.ingreso))}</b>.</span>
+      <span class="xs muted">Es solo un aviso: pueden seguir registrando.</span></div>
+  </section>`;
+}
+
+const SILENCIO_TXT = 'No recordar este pago';
+/** 3.4 · ¿Están silenciados los recordatorios de este gasto (o de su gasto mensual)? */
+export function silenciado(meta, g) {
+  const s = meta?.recordatorios?.silencio || [];
+  return !!g && (s.includes(g.id) || (!!g.plan_id && s.includes(g.plan_id)));
+}
+export { SILENCIO_TXT };

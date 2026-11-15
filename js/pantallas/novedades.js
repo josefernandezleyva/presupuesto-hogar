@@ -68,6 +68,20 @@ const pantallaAvisos = {
         </div>
         <p class="xs muted">Avisa los gastos nuevos (también los mensuales y las cuotas, una sola vez). Los tuyos no te avisan. Al tocar el aviso se abre el gasto.</p>
       </section>
+      <section class="card stack rec34">
+        <h2 class="h2">Recordatorios de pagos</h2>
+        <ul class="lista-sm sm">
+          <li><b>Por pagar:</b> 1 día antes, el día del vencimiento y al día siguiente si sigue pendiente. Le llega a quien lo paga.</li>
+          <li><b>Sin monto:</b> el día programado y cada 3 días, hasta que tenga monto.</li>
+          <li><b>Sobregiro:</b> una vez al mes, a todos, si los gastos superan los ingresos.</li>
+          <li><b>Resumen de la semana:</b> los domingos en la noche.</li>
+        </ul>
+        ${meta.demo ? '<p class="xs muted">En el modo de ejemplo no se envían.</p>'
+          : !meta.recordatorios ? alerta('warn', 'La hoja tiene un Code.gs anterior', 'El dueño de la hoja debe pegar el Code.gs de la versión 2.1, publicar una nueva versión y tocar Presupuesto › Activar recordatorios.')
+          : meta.recordatorios.activos ? `<p class="xs ok-t">Activos en la hoja${meta.recordatorios.ultimo ? ' · última revisión ' + esc(new Date(meta.recordatorios.ultimo).toLocaleString('es-PE', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })) : ''}${(meta.recordatorios.silencio || []).length ? ` · ${meta.recordatorios.silencio.length} silenciado${meta.recordatorios.silencio.length === 1 ? '' : 's'}` : ''}.</p>`
+          : alerta('warn', 'Falta activarlos en la hoja', 'El dueño de la hoja debe abrirla y tocar el menú Presupuesto › Activar recordatorios (una sola vez).')}
+        <p class="xs muted">Llegan a los iPhone con los avisos activados, aunque la app esté cerrada. Para no recibir los de un gasto, ábrelo y apaga «Recordatorios».</p>
+      </section>
       ${sop.ok ? `<div class="actions">
         ${activo ? `<button class="btn sec" data-a="probar" ${e.ocupado ? 'disabled' : ''}>Enviarme un aviso de prueba</button>
           <button class="btn ghost bad-t" data-a="desactivar" ${e.ocupado ? 'disabled' : ''}>Desactivar en este iPhone</button>`

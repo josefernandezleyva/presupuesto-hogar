@@ -3,7 +3,7 @@
 import * as st from './store.js';
 import * as L from './logic.js';
 import * as ops from './ops.js';
-import { mesActual, sumarMeses } from './util.js';
+import { mesActual, sumarMeses, hoy, fmt0, nombreMes } from './util.js';
 import { hoja, toast } from './ui.js';
 import { mensajeError } from './api.js';
 import { aplicarTema, programarCambio, revisarAspecto } from './tema.js';
@@ -22,10 +22,12 @@ import reporte from './pantallas/reporte.js';
 import novedades from './pantallas/novedades.js';
 import detalle from './pantallas/detalle.js';
 import anulados from './pantallas/anulados.js';
+import calendario from './pantallas/calendario.js';
 import { procesarCola } from './evidencia.js';
 import * as avisos from './avisos.js';
+import { montarMascota, rutaMascota } from './mascota.js';
 
-const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, ...cierre, analisis, reporte, ...mas, ...maestros, ...plan, ...inicioSesion, ...novedades, ...detalle, ...anulados };
+const PANTALLAS = { inicio, gastos, nuevo: registro, gasto: registro, ...cierre, analisis, reporte, ...mas, ...maestros, ...plan, ...inicioSesion, ...novedades, ...detalle, ...anulados, ...calendario };
 // Pestañas de la barra inferior (2.0): entre ellas la transición es un fundido; el resto entra deslizando.
 const PESTANAS = new Set(['inicio', 'gastos', 'cierre', 'analisis']);
 const SIN_SESION = new Set(['conectar', 'hogar', 'quien']);
@@ -194,7 +196,35 @@ export function render() {
   }
   aplicarSquircle(raiz);
   p.montar?.(raiz, c);
+  rutaMascota(app.ruta);
 }
+
+/** 3.4 · Lo que Sencillito cuenta del mes (datos reales del hogar). */
+function datosMascota() {
+  try {
+    const S = st.foto(), meta = st.getMeta();
+    const mes = mesActual(), h = hoy();
+    const yo = L.persona(S, meta.personaId);
+    const r = L.resumenMes(S, mes);
+    const dia = L.disponiblePorDia(S, mes, h);
+    const prox = L.proximos(S, h, { dias: 7 }).find((x) => !x.atrasado);
+    const exc = r.porCategoria.find((f) => f.estado === 'excede');
+    const proy = L.proyeccionMes(S, mes, h);
+    const nom = (g) => g.nota || L.categoria(S, g.categoria_id)?.nombre || 'Un gasto';
+    return {
+      nombre: yo ? (yo.alias || String(yo.nombre || '').split(' ')[0]) : '',
+      mes: nombreMes(mes, { anio: false }).toLowerCase(),
+      queda: r.presupuesto > 0 && r.disponible > 0 ? fmt0(r.disponible) : '',
+      porDia: dia && dia.porDia > 0 ? fmt0(dia.porDia) : '',
+      sobregiro: r.excedeIngreso ? fmt0(r.gastado + r.comprometido - r.ingreso) : '',
+      excedida: exc ? { cat: exc.cat.nombre, usado: fmt0(exc.usado), tope: fmt0(exc.tope) } : null,
+      proximo: prox ? `${nom(prox.gasto)} vence el ${Number(prox.gasto.fecha.slice(8, 10))}${Number(prox.gasto.monto) > 0 ? ': ' + fmt0(Number(prox.gasto.monto_soles)) : ', todavía sin monto'}.` : '',
+      sinMonto: L.gastosMes(S, mes, [L.ESTADO.PROG]).filter((g) => !(Number(g.monto) > 0)).length,
+      proyeccion: proy && proy.confiable && proy.margen != null ? (proy.margen >= 0 ? `A este ritmo, el mes cierra con ${fmt0(proy.margen)} de sobra.` : `A este ritmo, el mes se pasa de los ingresos por ${fmt0(-proy.margen)}.`) : ''
+    };
+  } catch (e) { console.error(e); return {}; }
+}
+montarMascota({ datos: datosMascota });
 
 /* ------------------------------------------------------------ Acciones --- */
 
@@ -386,18 +416,19 @@ st.cargarCopia().catch(() => 'local').then(async (r) => {
   mostrarNovedadesVersion();
 });
 
-/** Una sola vez: qué cambió en la 3.3 (solo a quien ya usaba la app). */
+/** Una sola vez: qué cambió en la 3.4 (solo a quien ya usaba la app). */
 function mostrarNovedadesVersion() {
   const meta = st.getMeta();
-  if (meta.visto33) return;
-  st.setMeta({ visto20: true, visto30: true, visto31: true, visto32: true, visto33: true });
+  if (meta.visto34) return;
+  st.setMeta({ visto20: true, visto30: true, visto31: true, visto32: true, visto33: true, visto34: true });
   if (puerta() || (!meta.ultimoSync && !meta.demo)) return; // instalación nueva: no hay nada que comparar
   preguntar({
-    titulo: 'Novedades de la versión 3.3',
+    titulo: 'Novedades de la versión 3.4',
     html: `<ul class="nuevo20">
-      <li>Un gasto mensual puede caer <b>el día que elijas</b> o <b>a fin de mes</b> (30 de noviembre, 31 de diciembre, 28 o 29 de febrero).</li>
-      <li>Si cambias el reparto de un mensual en un mes, eliges <b>«ese mes y los siguientes»</b>, aunque ya esté pagado. Los meses anteriores no cambian.</li>
-      <li>Para <b>terminar</b> un gasto mensual: en su detalle, «Terminar en julio» (o el mes que sea). Si cambias de idea, vuelve a ponerlo «Sin fin».</li>
+      <li><b>Recordatorios</b> aunque la app esté cerrada: 1 día antes de vencer, el día y al día siguiente si sigue por pagar. Los gastos sin monto se recuerdan cada 3 días. En el detalle de un gasto puedes silenciarlo.</li>
+      <li><b>Aviso de sobregiro</b> cuando los gastos del mes superan los ingresos, y <b>«Así cerraría el mes»</b>: una proyección al ritmo actual.</li>
+      <li><b>Calendario de pagos</b>, montos sugeridos para los gastos sin monto, topes sugeridos según los últimos meses y <b>enviar las cuentas por WhatsApp</b>.</li>
+      <li>Nuevo amigo opcional: <b>Sencillito</b>, el perrito ahorrador. Actívalo en Más › Aspecto › Mascota.</li>
     </ul>`,
     botones: [{ l: 'Entendido', estilo: 'pri' }],
     cancelar: 'Cerrar'

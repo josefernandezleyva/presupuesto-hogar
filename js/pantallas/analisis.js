@@ -1,10 +1,10 @@
 // Dashboards (sección 5.9, RF-41): tres indicadores principales y el resto en «Más indicadores».
 
 import * as L from '../logic.js';
-import { esc, nombreMes, pct, r2, mesActual, fmt0 } from '../util.js';
+import { esc, nombreMes, pct, r2, mesActual, fmt0, hoy } from '../util.js';
 import { tituloGrande, tabbar, chips, dinero0, barra, vacio, icono } from '../ui.js';
 import { barras, linea, barraMeta } from '../charts.js';
-import { puntoCat, placaCat, placa, nombre } from './comun.js';
+import { puntoCat, placaCat, placa, nombre, tarjetaProyeccion } from './comun.js';
 import { segmentado } from '../ui.js';
 import { compromisosHtml } from './plan.js';
 import compromisosPantalla from './plan.js';
@@ -53,6 +53,7 @@ function vistaMes(c) {
       <div class="split sm"><span>Gastado ${dinero0(r.gastado)} · por pagar ${dinero0(r.comprometido)}</span><b class="num${r.disponible < 0 ? ' bad-t' : ''}">${r.disponible < 0 ? 'Excedido ' + dinero0(-r.disponible) : 'Quedan ' + dinero0(r.disponible)}</b></div>` : '<p class="muted sm">Define el presupuesto del mes para ver cuánto queda.</p>'}
       ${r.ingreso > 0 && r.presupuesto > 0 ? `<p class="xs muted">El presupuesto es el ${esc(pct(r.presupuesto / r.ingreso * 100))} del ingreso · gasto y compromisos: ${dinero0(usado)}</p>` : ''}
     </section>
+    ${mes === mesActual() ? tarjetaProyeccion(L.proyeccionMes(S, mes, hoy()), mes) : ''}
     <div class="split vc sec-h"><h2 class="h2">Topes por categoría</h2><a class="btn sec mini" href="#/presupuesto">Editar topes</a></div>
     ${grupos.length ? grupos.map(([g, fs]) => `<section class="card grupo-tope">
       <div class="split xs b muted"><span>${puntoCat({ grupo: g })} ${esc(g)}</span><span class="num">${dinero0(fs.reduce((a, f) => a + f.usado, 0))}${fs.some((f) => f.tope > 0) ? ' de ' + dinero0(fs.reduce((a, f) => a + f.tope, 0)) : ''}</span></div>

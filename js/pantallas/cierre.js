@@ -25,6 +25,29 @@ function abrirPago(c, datos) {
   c.preguntar({ titulo: 'Registrar pago', get html() { return formPago(c); }, botones: [], cancelar: 'Cancelar' });
 }
 
+/** 3.4 · Resumen de las cuentas del mes para enviar por WhatsApp (sin el código del hogar ni enlaces). */
+export function textoCuentas(S, mes) {
+  const r = L.resumenMes(S, mes);
+  const filas = L.saldosMes(S, mes).filter((f) => L.persona(S, f.persona_id));
+  const trans = L.transferencias(filas);
+  const nm = (id) => { const p = L.persona(S, id); return p?.alias || String(p?.nombre || '').split(' ')[0] || ''; };
+  const cerrado = L.mesCerrado(S, mes);
+  const l = [`*Cuentas de ${nombreMes(mes).toLowerCase()}*${cerrado ? ' (cerrado)' : ''}`];
+  l.push(`Gastado: ${fmt0(r.gastado)}${r.comprometido > 0 ? ` · por pagar: ${fmt0(r.comprometido)}` : ''}${r.ingreso > 0 ? ` · ingresos: ${fmt0(r.ingreso)}` : ''}`);
+  filas.forEach((f) => l.push(`• ${nm(f.persona_id)} pagó ${fmt0(f.pagado)} y le toca ${fmt0(f.corresponde)}`));
+  l.push(trans.length ? trans.map((t) => `➡️ ${nm(t.de)} le paga ${fmt(t.monto)} a ${nm(t.a)}`).join('\n') : '✅ Están al día');
+  l.push('— Presupuesto del Hogar');
+  return l.join('\n');
+}
+
+function botonesCompartir(S, mes) {
+  const txt = textoCuentas(S, mes);
+  return `<div class="compartir34">
+    <a class="btn wa" href="https://wa.me/?text=${encodeURIComponent(txt)}" target="_blank" rel="noopener">${icono('whatsapp', 20)} Enviar por WhatsApp</a>
+    ${typeof navigator !== 'undefined' && navigator.share ? `<button type="button" class="btn-ic round" data-a="compartir-cuentas" aria-label="Más opciones para compartir">${icono('compartir', 20)}</button>` : ''}
+  </div>`;
+}
+
 const cuentas = {
   vista(c) {
     const { S, mes, estado: e } = c;
@@ -54,6 +77,7 @@ const cuentas = {
         <div class="lbl">Saldo entre personas${cerrado ? ' al cierre' : ''}</div>
         <div class="frase num">${fraseSaldo(S, trans)}</div>
         ${!cerrado && t0 ? `<button class="btn pri" data-a="sugerido" data-de="${esc(t0.de)}" data-para="${esc(t0.a)}" data-m="${t0.monto}">Registrar este pago</button>` : ''}
+        ${filas.some((f) => f.pagado > 0 || f.corresponde > 0) ? botonesCompartir(S, mes) : ''}
         ${arrastre.length ? `<div class="xs">Incluye el saldo que viene de ${esc(nombreMes(sumarMeses(mes, -1), { anio: false }).toLowerCase())}: ${arrastre.filter((f) => f.saldo_inicial < 0).map((f) => `${nombre(S, f.persona_id)} arrastra ${esc(fmt(-f.saldo_inicial))}`).join(', ')}.</div>` : ''}
       </section>
 
@@ -94,6 +118,9 @@ const cuentas = {
     </main>${tabbar('cierre')}`;
   },
   acciones: {
+    async 'compartir-cuentas'(c) {
+      try { await navigator.share({ text: textoCuentas(c.S, c.mes) }); } catch { /* cancelado */ }
+    },
     sugerido(c, d) { abrirPago(c, { de: d.de, para: d.para, lm: d.m }); },
     'nuevo-pago'(c) {
       const ps = L.personas(c.S);
@@ -166,7 +193,8 @@ const cerrarMes = {
         ${mes > mesActual() ? alerta('warn', 'Este mes todavía no termina', 'Puedes cerrarlo igual, pero no podrán registrar más gastos en él.') : ''}
         <div class="det-nota">${placa('cerrado', 'var(--warn, #B26B00)', 28)}<span class="sm">Después de cerrar, nadie podrá cambiar gastos de ${esc(nm)}. Solo el administrador puede reabrirlo.</span></div>`;
     } else {
-      cuerpo = `<section class="center stack hecho">${placa('pagado', 'var(--accent)', 76)}<h2 class="paso-t">${esc(nombreMes(mes))} está cerrado</h2><p class="sm muted">Quedó guardado en la hoja. El resto del hogar también lo verá cerrado.</p></section>`;
+      cuerpo = `<section class="center stack hecho">${placa('pagado', 'var(--accent)', 76)}<h2 class="paso-t">${esc(nombreMes(mes))} está cerrado</h2><p class="sm muted">Quedó guardado en la hoja. El resto del hogar también lo verá cerrado.</p>
+        <p class="sm">Envía el resumen de las cuentas al grupo de la familia:</p>${botonesCompartir(S, mes)}</section>`;
     }
     const pie = e.paso === 4 ? '<a class="btn pri wide" href="#/cierre">Volver a Cuentas</a>'
       : `<button class="btn ${e.paso === 3 ? 'lock' : 'pri'} wide" data-a="${e.paso === 3 ? 'confirmar-cierre' : 'siguiente'}">${e.paso === 3 ? `Cerrar ${esc(nm)}` : e.paso === 2 && proy.length ? 'Seguir sin saldar' : 'Seguir'}</button>
@@ -180,7 +208,10 @@ const cerrarMes = {
       ops.registrarLiquidacion({ mes: c.mes, de: d.de, a: d.para, monto: Number(d.m), fecha: hoy() });
       c.avisar('Pago registrado');
     },
-    'confirmar-cierre'(c) { ops.cerrarMes(c.mes); c.estado.paso = 4; c.avisar('Mes cerrado'); }
+    'confirmar-cierre'(c) { ops.cerrarMes(c.mes); c.estado.paso = 4; c.avisar('Mes cerrado'); },
+    async 'compartir-cuentas'(c) {
+      try { await navigator.share({ text: textoCuentas(c.S, c.mes) }); } catch { /* cancelado */ }
+    }
   }
 };
 

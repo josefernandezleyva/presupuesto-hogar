@@ -6,7 +6,7 @@ import * as ops from '../ops.js';
 import { esc, pct, hoy, mesActual, fechaCorta, num, fmt, nombreMes } from '../util.js';
 import { svg } from '../iconos.js';
 import { tituloGrande, tabbar, barra, alerta, dinero, dinero0, avatar, icono, anillo, haceCuanto } from '../ui.js';
-import { lineaSync, fraseSaldo, puntoCat, placaCat, placa, nombre, botonSync, sinMonto, marcarPagado } from './comun.js';
+import { lineaSync, fraseSaldo, puntoCat, placaCat, placa, nombre, botonSync, sinMonto, marcarPagado, tarjetaProyeccion, tarjetaSobregiro } from './comun.js';
 import { soporte, MOTIVOS } from '../avisos.js';
 import { pendientes } from '../store.js';
 
@@ -88,10 +88,10 @@ export default {
       ${hero}
 
       ${r.excedePresupuesto ? alerta('bad', 'Superaron el presupuesto del mes', `Gasto y compromisos suman ${dinero0(usado)}, ${dinero0(usado - r.presupuesto)} sobre el presupuesto.`) : ''}
-      ${r.excedeIngreso ? alerta('bad', 'El gasto supera el ingreso del hogar', `Gasto y compromisos: ${dinero0(usado)}. Ingreso: ${dinero0(r.ingreso)}.`) : ''}
+      ${tarjetaSobregiro(r, mes)}
 
       ${nPend && !vacioMes ? `<section class="card list pendientes">
-        <div class="list-h"><h2 class="h2">Pendientes <span class="badge warn">${nPend}</span></h2>${prox.length ? '<a class="link" href="#/gastos?estado=Programado">Ver por pagar</a>' : ''}</div>
+        <div class="list-h"><h2 class="h2">Pendientes <span class="badge warn">${nPend}</span></h2>${prox.length ? '<a class="link" href="#/calendario">Calendario</a>' : ''}</div>
         ${prox.map(({ gasto: g, atrasado }) => {
           const cat = L.categoria(S, g.categoria_id);
           return `<div class="row prox">
@@ -104,6 +104,8 @@ export default {
         ${excedidas.map((f) => `<a class="row" href="#/analisis">${placa('excedido', '#B3362A', 36)}<span class="row-m"><span class="row-t">${esc(f.cat.nombre)} superó su tope</span><span class="row-s">${dinero0(f.usado)} de ${dinero0(f.tope)}</span></span>${icono('adelante', 18)}</a>`).join('')}
         ${sinVer > novNuevas.length ? `<a class="row" href="#/novedades">${placa('campana', '#2F5D8A', 36)}<span class="row-m"><span class="row-t">Ver las ${sinVer} novedades</span><span class="row-s">Gastos que registró la otra persona</span></span>${icono('adelante', 18)}</a>` : ''}
       </section>` : ''}
+
+      ${!vacioMes && mes === mesActual() ? tarjetaProyeccion(L.proyeccionMes(S, mes, hoy()), mes) : ''}
 
       <a class="card saldo-card" href="#/cierre">
         <div class="saldo-avs">${trans.length ? avatar(L.persona(S, trans[0].de), 40) + `<span class="saldo-fl">${icono('adelante', 16)}</span>` + avatar(L.persona(S, trans[0].a), 40) : avatar(yo, 40)}</div>

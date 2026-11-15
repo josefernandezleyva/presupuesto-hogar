@@ -11,6 +11,7 @@ import * as evid from '../evidencia.js';
 import { aplicarSquircle } from '../squircle.js';
 import { mensajeError } from '../api.js';
 import { puntoCat, pedirAnular } from './comun.js';
+import { premiarMascota } from '../mascota.js';
 
 const np = (v) => { const x = parseMonto(v); return isNaN(x) ? 0 : Math.min(100, Math.max(0, x)); };
 
@@ -170,7 +171,34 @@ function solesDelMes(c) {
 
 /* -------------------------------------------------- Piezas actualizables --- */
 
-function usoHtml(c) {
+function usoHtml(c) { return usoCatHtml(c) + sobregiroHtml(c); }
+
+/** 3.4 · Para un gasto sin monto: el monto del último mes, a un toque. */
+function sugeridoHtml(c, g) {
+  const sug = L.montoSugerido(c.S, g);
+  if (!sug) return '';
+  return `<button type="button" class="chip sug-monto" data-a="usar-sugerido">${icono('reloj', 16)} ${esc(nombreMes(sug.mes, { anio: false }))} fue ${esc(fmt(sug.monto, { moneda: sug.moneda }))} · usar este monto</button>`;
+}
+
+/** 3.4 · Aviso informativo (no impide guardar) cuando el mes, con este gasto, supera los ingresos del hogar. */
+function sobregiroHtml(c) {
+  const { S, estado: e } = c;
+  if (e.moneda === 'USD' && !tcVigente(c)) return '';
+  const mes = e.modalidad === 'Cuotas' && !e.planOrig ? (e.mesInicio || mesDe(e.fecha)) : mesDe(e.fecha);
+  const r = L.resumenMes(S, mes);
+  if (!(r.ingreso > 0)) return '';
+  const previo = e.id ? S.Gastos.find((g) => g.id === e.id) : null;
+  const propio = previo && previo.mes === mes && [L.ESTADO.CONF, L.ESTADO.PROG].includes(previo.estado) ? num(previo.monto_soles) : 0;
+  const antes = r2(r.gastado + r.comprometido - propio);
+  const soles = solesDelMes(c);
+  const con = r2(antes + soles);
+  const nm = nombreMes(mes, { anio: false });
+  if (con <= r.ingreso + 0.004) return '';
+  if (antes > r.ingreso + 0.004 || !(soles > 0)) return `<p class="xs warn-t sobregiro-l">${esc(nm)} ya se pasa de los ingresos por ${esc(fmt0(antes - r.ingreso))}.</p>`;
+  return alerta('warn', `${nm} se pasaría de los ingresos`, `Con este gasto, ${nm.toLowerCase()} suma ${fmt(con)} y entran ${fmt0(r.ingreso)}: se pasan por ${fmt(con - r.ingreso)}. Es solo un aviso, puedes guardar igual.`);
+}
+
+function usoCatHtml(c) {
   const { S, estado: e } = c;
   if (!e.categoria_id) return '';
   const cat = L.categoria(S, e.categoria_id);
@@ -590,6 +618,7 @@ const pantalla = {
           <input id="monto" class="monto-i" data-f="monto" data-keep inputmode="decimal" autocomplete="off" enterkeyhint="next" placeholder="0.00" value="${esc(e.monto)}"${invalido(e, 'monto')} ${dis}>
         </div>
         ${e.modalidad === 'Cuotas' && !plan ? '<span class="xs muted">Monto total: se reparte en las cuotas</span>' : ''}
+        ${g && !bloqueado && !(parseMonto(e.monto) > 0) ? sugeridoHtml(c, g) : ''}
         ${e.modalidad === 'Recurrente' && !bloqueado ? `<span class="xs muted sin-monto-i">${parseMonto(e.monto) > 0 ? 'Monto de cada mes.' : '¿Aún no sabes el monto? Déjalo en 0: queda como recordatorio «por pagar» cada mes y lo completas cuando llegue el recibo.'}</span>` : ''}
       </section>
       ${errorDe(e, 'monto')}
@@ -739,6 +768,14 @@ const pantalla = {
   },
 
   acciones: {
+    'usar-sugerido'(c) {
+      const g = c.S.Gastos.find((x) => x.id === c.estado.id);
+      const sug = L.montoSugerido(c.S, g);
+      if (!sug) return;
+      c.estado.monto = String(sug.monto);
+      c.estado.moneda = sug.moneda;
+      c.render();
+    },
     listaCat(c) {
       c.preguntar({ titulo: 'Categoría', html: hojaCategorias(c), botones: [], cancelar: 'Cerrar' });
     },
@@ -906,6 +943,8 @@ const pantalla = {
         const id = ops.guardarGasto(f, { id: e.id || null, alcance });
         // 2.0: un gasto nuevo avisa a la otra persona (viaja con la sincronización).
         if (!e.id) { try { st.encolarAvisos(L.avisosDeRegistro(st.foto(), id, c.meta.personaId)); } catch (err) { console.error(err); } }
+        // 3.4 · Si la mascota está activa, corre al + y recibe una moneda.
+        if (!e.id) premiarMascota(`¡Anotado! ${String(f.nota || L.categoria(st.foto(), f.categoria_id)?.nombre || 'Gasto')}${monto > 0 ? ', ' + fmt(monto, { moneda: e.moneda }) : ''}.`);
         if (g?.plan_id && cambiosPlan) ops.actualizarPlan(g.plan_id, cambiosPlan, g.mes, { excluir: Math.abs(monto - num(g.monto)) > 0.004 ? g.id : null });
         // La foto se une al gasto (en cuotas o cada mes, a la primera cuota).
         const gid = !e.id && (e.modalidad === 'Cuotas' || e.modalidad === 'Recurrente') ? L.idGastoDePlan(id, 0) : (e.id || id);

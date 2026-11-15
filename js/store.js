@@ -214,6 +214,8 @@ export function sincronizar() {
       // Versión del Code.gs de la hoja (las anteriores a la 4 no la informan al sincronizar).
       meta.schemaServidor = Number(res.schema) || 3;
       meta.codigoServidor = res.codigo ? String(res.codigo) : '';
+      // 3.4 · Recordatorios del Code.gs 2.1: si están activos y qué gastos se silenciaron.
+      meta.recordatorios = res.recordatorios || null;
       // Los avisos salieron con este lote (o el Code.gs no los conoce): se quitan de la cola.
       if (avisos.length) {
         const ids = new Set(avisos.map((a) => a.t + '|' + a.para + '|' + a.tag));
