@@ -7,6 +7,7 @@ import { encabezado, alerta, icono, vacio } from '../ui.js';
 import { itemNovedad } from './inicio.js';
 import * as avisos from '../avisos.js';
 import { mensajeError } from '../api.js';
+import * as ops from '../ops.js';
 
 const novedades = {
   iniciar(c) {
@@ -75,7 +76,12 @@ const pantallaAvisos = {
           <li><b>Sin monto:</b> el día programado y cada 3 días, hasta que tenga monto.</li>
           <li><b>Sobregiro:</b> una vez al mes, a todos, si los gastos superan los ingresos.</li>
           <li><b>Resumen de la semana:</b> los domingos en la noche.</li>
+          <li><b>Anotar los gastos (3.5):</b> a la hora que elijas, solo si ese día no registraste nada.</li>
         </ul>
+        ${meta.personaId ? `<label class="ajuste-fila anotar35"><span class="ajuste-t"><span>Recordarme anotar</span><span class="xs muted">Si hoy no registré ningún gasto</span></span>
+          <select class="inp mini" data-f="anotarHora" aria-label="Hora del recordatorio para anotar">${[['19', '7 p. m.'], ['20', '8 p. m.'], ['21', '9 p. m.'], ['22', '10 p. m.'], ['23', '11 p. m.'], ['no', 'Apagado']]
+            .map(([v, l]) => `<option value="${v}" ${String(L.horaAnotar(S, meta.personaId) ?? 'no') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}
+        ${meta.recordatorios?.activos && !meta.recordatorios.anotar && !meta.demo ? '<p class="xs warn-t">Para el recordatorio de anotar, el dueño de la hoja debe pegar el Code.gs 2.2, publicar una nueva versión y tocar otra vez Presupuesto › Activar recordatorios.</p>' : ''}
         ${meta.demo ? '<p class="xs muted">En el modo de ejemplo no se envían.</p>'
           : !meta.recordatorios ? alerta('warn', 'La hoja tiene un Code.gs anterior', 'El dueño de la hoja debe pegar el Code.gs de la versión 2.1, publicar una nueva versión y tocar Presupuesto › Activar recordatorios.')
           : meta.recordatorios.activos ? `<p class="xs ok-t">Activos en la hoja${meta.recordatorios.ultimo ? ' · última revisión ' + esc(new Date(meta.recordatorios.ultimo).toLocaleString('es-PE', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })) : ''}${(meta.recordatorios.silencio || []).length ? ` · ${meta.recordatorios.silencio.length} silenciado${meta.recordatorios.silencio.length === 1 ? '' : 's'}` : ''}.</p>`
@@ -99,6 +105,14 @@ const pantallaAvisos = {
         </ul>
       </section>
     </main>`;
+  },
+  alEscribir(c, f, el, ev) {
+    if (f !== 'anotarHora' || ev?.type !== 'change') return;
+    const v = el.value;
+    try {
+      ops.guardarRecordatorioAnotar(c.meta.personaId, v);
+      c.avisar(v === 'no' ? 'Recordatorio para anotar apagado' : `Te lo recordaremos a las ${Number(v) - 12} p. m. si no anotaste nada`);
+    } catch (err) { c.avisar(err.message, 'bad'); }
   },
   acciones: {
     async activar(c) {

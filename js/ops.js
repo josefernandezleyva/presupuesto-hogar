@@ -62,6 +62,23 @@ export function crearHogar({ nombres, pcts, mes = mesActual() }) {
   return ids[0];
 }
 
+/** 3.5 · Fondo de emergencia (P14): se guarda en la pestaña Config (clave/valor), sin cambiar la hoja. */
+export function guardarFondo({ categoria_id, saldo = 0, metaMeses = 6, desde }) {
+  if (!categoria_id || !L.categoria(S(), categoria_id)) falla('Elige la categoría de los aportes.');
+  if (!(saldo >= 0)) falla('Escribe un saldo válido.');
+  setConfig(L.FONDO.cat, categoria_id);
+  setConfig(L.FONDO.base, r2(saldo));
+  setConfig(L.FONDO.desde, desde || hoy());
+  setConfig(L.FONDO.meta, Math.max(1, Math.round(metaMeses) || 6));
+}
+
+/** 3.5 · Recordatorio diario para anotar (P1): hora elegida por cada persona («19» a «23») o «no». */
+export function guardarRecordatorioAnotar(personaId, valor) {
+  if (!personaId) falla('Elige quién eres en este celular.');
+  const v = String(valor) === 'no' ? 'no' : String(Math.min(23, Math.max(6, Math.round(Number(valor)) || 21)));
+  setConfig(`anotar_${personaId}`, v);
+}
+
 export function setConfig(clave, valor) {
   st.guardarUno('Config', { id: `CFG_${clave}`, clave, valor: String(valor) });
 }

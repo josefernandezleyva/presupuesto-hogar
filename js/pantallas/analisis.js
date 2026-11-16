@@ -8,6 +8,7 @@ import { puntoCat, placaCat, placa, nombre, tarjetaProyeccion } from './comun.js
 import { segmentado } from '../ui.js';
 import { compromisosHtml } from './plan.js';
 import compromisosPantalla from './plan.js';
+import { tarjetaSinAsignar, tarjetaFondo, tarjetaComparacion, marcaHoy, tagRitmo, accionesFondo } from './practicas.js';
 
 const corto = (m) => nombreMes(m, { corto: true, anio: false });
 
@@ -24,7 +25,8 @@ export default {
     return vistaTendencias(c, cab);
   },
   acciones: {
-    'ver-mes'(c, d) { compromisosPantalla.compromisos.acciones['ver-mes'](c, d); }
+    'ver-mes'(c, d) { compromisosPantalla.compromisos.acciones['ver-mes'](c, d); },
+    ...accionesFondo
   }
 };
 
@@ -43,7 +45,10 @@ function vistaMes(c) {
   });
   const orden = L.grupos(S).map((g) => g.nombre);
   const grupos = [...porGrupo.entries()].sort((a, b) => (orden.indexOf(a[0]) + 999 * (orden.indexOf(a[0]) < 0)) - (orden.indexOf(b[0]) + 999 * (orden.indexOf(b[0]) < 0)));
-  const tag = (f) => f.estado === 'excede' ? '<span class="badge bad">Superado</span>' : f.estado === 'aviso' ? `<span class="badge warn">${esc(pct(f.pct))}</span>` : '';
+  // 3.5 · Ritmo (P8): marca de «hoy» en cada barra y aviso si, a este ritmo, la categoría pasaría su tope.
+  const rit = mes === mesActual() ? L.ritmoCategorias(S, mes, hoy()) : null;
+  const rapida = new Map((rit?.alertas || []).map((a) => [a.cat.id, a]));
+  const tag = (f) => f.estado === 'excede' ? '<span class="badge bad">Superado</span>' : rapida.has(f.cat.id) ? tagRitmo(rapida.get(f.cat.id)) : f.estado === 'aviso' ? `<span class="badge warn">${esc(pct(f.pct))}</span>` : '';
   return `<section class="card pres-res">
       <div class="duo">
         <a href="#/ingresos" class="duo-c">${placa('sueldo', '#2E7D6B', 32)}<span class="lbl">Ingreso del hogar</span><span class="mid num">${r.ingreso > 0 ? dinero0(r.ingreso) : 'Registrar'}</span></a>
@@ -53,13 +58,15 @@ function vistaMes(c) {
       <div class="split sm"><span>Gastado ${dinero0(r.gastado)} · por pagar ${dinero0(r.comprometido)}</span><b class="num${r.disponible < 0 ? ' bad-t' : ''}">${r.disponible < 0 ? 'Excedido ' + dinero0(-r.disponible) : 'Quedan ' + dinero0(r.disponible)}</b></div>` : '<p class="muted sm">Define el presupuesto del mes para ver cuánto queda.</p>'}
       ${r.ingreso > 0 && r.presupuesto > 0 ? `<p class="xs muted">El presupuesto es el ${esc(pct(r.presupuesto / r.ingreso * 100))} del ingreso · gasto y compromisos: ${dinero0(usado)}</p>` : ''}
     </section>
+    ${tarjetaSinAsignar(L.sinAsignar(S, mes), { admin: c.admin })}
     ${mes === mesActual() ? tarjetaProyeccion(L.proyeccionMes(S, mes, hoy()), mes) : ''}
+    ${tarjetaFondo(L.fondoEmergencia(S, mes))}
     <div class="split vc sec-h"><h2 class="h2">Topes por categoría</h2><a class="btn sec mini" href="#/presupuesto">Editar topes</a></div>
     ${grupos.length ? grupos.map(([g, fs]) => `<section class="card grupo-tope">
       <div class="split xs b muted"><span>${puntoCat({ grupo: g })} ${esc(g)}</span><span class="num">${dinero0(fs.reduce((a, f) => a + f.usado, 0))}${fs.some((f) => f.tope > 0) ? ' de ' + dinero0(fs.reduce((a, f) => a + f.tope, 0)) : ''}</span></div>
       ${fs.map((f) => `<a class="catrow" href="#/gastos?cat=${esc(f.cat.id)}">
         <span class="split vc">${placaCat(f.cat, 30)}<span class="grow sm b">${esc(f.cat.nombre)} ${tag(f)}</span><span class="muted sm num">${dinero0(f.usado)}${f.tope > 0 ? ' de ' + dinero0(f.tope) : ''}</span></span>
-        ${f.tope > 0 ? barra(f.pct, f.estado) : ''}
+        ${f.tope > 0 ? barra(f.pct, f.estado, marcaHoy(rit)) : ''}
       </a>`).join('')}
     </section>`).join('') : vacio('Todavía no hay gastos ni topes este mes.', '<a class="btn pri" href="#/presupuesto">Definir el presupuesto</a>')}`;
 }
@@ -94,6 +101,8 @@ function vistaTendencias(c, cab) {
         ${r.presupuesto > 0 ? barra(total / r.presupuesto * 100, total > r.presupuesto ? 'excede' : total >= r.presupuesto * L.umbral(S) / 100 ? 'aviso' : 'ok') : ''}
         ${r.presupuesto > 0 ? `<p class="xs muted">${esc(pct(total / r.presupuesto * 100))} del presupuesto${r.ingreso > 0 ? ` · ${esc(pct(Math.max(0, ahorro) / r.ingreso * 100))} del ingreso sin gastar` : ''}</p>` : ''}
       </section>
+
+      ${pid ? '' : tarjetaComparacion(L.comparacionPromedio(S, mes, mes === mesActual() ? hoy() : null), mes)}
 
       <section class="card">
         <h2 class="h2">Gasto por categoría frente al tope</h2>

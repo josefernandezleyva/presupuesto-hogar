@@ -259,6 +259,21 @@ function sugerenciasHtml(c) {
   }).join('')}</div>`;
 }
 
+/** 3.5 · P3: los últimos gastos distintos; un toque llena descripción, monto, categoría y quién pagó. */
+function recientesHtml(c) {
+  const { S, estado: e } = c;
+  if (e.id || e.bloqueado) return '';
+  const lista = L.recientes(S, { max: 5 });
+  if (!lista.length) return '';
+  return `<div class="rec35" role="group" aria-labelledby="rec-l"><span class="lbl" id="rec-l">Repetir uno reciente</span>
+    <div class="rec-chips">${lista.map((x, i) => {
+      const cat = L.categoria(S, x.categoria_id);
+      const on = e.recienteId === x.id;
+      return `<button type="button" class="chip rec-c${on ? ' on' : ''}" data-a="reciente" data-i="${i}" aria-pressed="${on}" aria-label="${esc(x.nota)}, ${esc(fmt(x.monto, { moneda: x.moneda }))}, ${esc(cat?.nombre || '')}">
+        <span class="rec-n">${esc(x.nota)}</span><span class="rec-m num">${esc(fmt(x.monto, { moneda: x.moneda }))}</span><span class="rec-k">${puntoCat(cat)} ${esc(cat?.nombre || '')}</span></button>`;
+    }).join('')}</div></div>`;
+}
+
 /** 3.2 · Monto 0 permitido solo en gastos mensuales que siguen por pagar (nuevos o una mensualidad por pagar). */
 function permiteSinMonto(c) {
   const e = c.estado;
@@ -607,6 +622,7 @@ const pantalla = {
       ${bloqueado ? alerta('warn', anulado ? 'Este gasto está anulado' : `${nombreMes(g.mes)} está cerrado`, anulado ? 'No cuenta en los totales.' : 'Solo se puede ver.') : ''}
       ${plan ? `<p class="muted sm center">${plan.modalidad === 'Cuotas' ? `<a class="link" href="#/plan/${esc(plan.id)}">Cuota ${esc(g.nro_cuota)} de ${esc(plan.nro_cuotas)}</a>` : 'Gasto mensual'} · ${esc(plan.descripcion)} · ${g.estado === L.ESTADO.CONF ? 'Pagado' : g.estado === L.ESTADO.PROG ? 'Por pagar' : esc(g.estado)}</p>` : ''}
 
+      ${recientesHtml(c)}
       <section class="monto31${e.falta?.campo === 'monto' ? ' error' : ''}" data-err="monto">
         <div class="cur-seg" role="group" aria-label="Moneda">
           <button type="button" class="${e.moneda === 'PEN' ? 'on' : ''}" data-a="moneda" data-v="PEN" aria-pressed="${e.moneda === 'PEN'}" ${dis}>S/</button>
@@ -778,6 +794,19 @@ const pantalla = {
     },
     listaCat(c) {
       c.preguntar({ titulo: 'Categoría', html: hojaCategorias(c), botones: [], cancelar: 'Cerrar' });
+    },
+    reciente(c, d) {
+      const e = c.estado;
+      const x = L.recientes(c.S, { max: 5 })[Number(d.i)];
+      if (!x) return;
+      const ps = L.personas(c.S).map((p) => p.id);
+      Object.assign(e, { nota: x.nota, notaPropuesta: false, monto: String(x.monto), moneda: x.moneda, categoria_id: x.categoria_id, dupOk: false, recienteId: x.id });
+      if (ps.includes(x.pagado_por)) e.pagado_por = x.pagado_por;
+      if (!e.tipoManual) e.tipo = '';
+      if (e.moneda === 'USD' && !e.tcManual) e.tc = String(L.tipoCambio(c.S, mesDe(e.fecha)) || '');
+      if (['monto', 'nota', 'categoria'].includes(e.falta?.campo)) e.falta = null;
+      c.render();
+      c.avisar('Listo: revisa el monto y toca Guardar');
     },
     sugerencia(c, d) {
       const e = c.estado;

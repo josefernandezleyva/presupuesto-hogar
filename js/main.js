@@ -199,7 +199,7 @@ export function render() {
   rutaMascota(app.ruta);
 }
 
-/** 3.4 · Lo que Sencillito cuenta del mes (datos reales del hogar). */
+/** 3.4 · Lo que la mascota (Moti) cuenta del mes (datos reales del hogar). */
 function datosMascota() {
   try {
     const S = st.foto(), meta = st.getMeta();
@@ -220,6 +220,7 @@ function datosMascota() {
       excedida: exc ? { cat: exc.cat.nombre, usado: fmt0(exc.usado), tope: fmt0(exc.tope) } : null,
       proximo: prox ? `${nom(prox.gasto)} vence el ${Number(prox.gasto.fecha.slice(8, 10))}${Number(prox.gasto.monto) > 0 ? ': ' + fmt0(Number(prox.gasto.monto_soles)) : ', todavía sin monto'}.` : '',
       sinMonto: L.gastosMes(S, mes, [L.ESTADO.PROG]).filter((g) => !(Number(g.monto) > 0)).length,
+      ritmo: (() => { const a = L.ritmoCategorias(S, mes, h).alertas[0]; return a ? `${a.cat.nombre} va rápido: a este ritmo pasa su tope el ${a.diaCruce}.` : ''; })(),
       proyeccion: proy && proy.confiable && proy.margen != null ? (proy.margen >= 0 ? `A este ritmo, el mes cierra con ${fmt0(proy.margen)} de sobra.` : `A este ritmo, el mes se pasa de los ingresos por ${fmt0(-proy.margen)}.`) : ''
     };
   } catch (e) { console.error(e); return {}; }
@@ -416,19 +417,21 @@ st.cargarCopia().catch(() => 'local').then(async (r) => {
   mostrarNovedadesVersion();
 });
 
-/** Una sola vez: qué cambió en la 3.4 (solo a quien ya usaba la app). */
+/** Una sola vez: qué cambió en la 3.5 (solo a quien ya usaba la app). */
 function mostrarNovedadesVersion() {
   const meta = st.getMeta();
-  if (meta.visto34) return;
-  st.setMeta({ visto20: true, visto30: true, visto31: true, visto32: true, visto33: true, visto34: true });
+  if (meta.visto35) return;
+  st.setMeta({ visto20: true, visto30: true, visto31: true, visto32: true, visto33: true, visto34: true, visto35: true });
   if (puerta() || (!meta.ultimoSync && !meta.demo)) return; // instalación nueva: no hay nada que comparar
   preguntar({
-    titulo: 'Novedades de la versión 3.4',
+    titulo: 'Novedades de la versión 3.5',
     html: `<ul class="nuevo20">
-      <li><b>Recordatorios</b> aunque la app esté cerrada: 1 día antes de vencer, el día y al día siguiente si sigue por pagar. Los gastos sin monto se recuerdan cada 3 días. En el detalle de un gasto puedes silenciarlo.</li>
-      <li><b>Aviso de sobregiro</b> cuando los gastos del mes superan los ingresos, y <b>«Así cerraría el mes»</b>: una proyección al ritmo actual.</li>
-      <li><b>Calendario de pagos</b>, montos sugeridos para los gastos sin monto, topes sugeridos según los últimos meses y <b>enviar las cuentas por WhatsApp</b>.</li>
-      <li>Nuevo amigo opcional: <b>Sencillito</b>, el perrito ahorrador. Actívalo en Más › Aspecto › Mascota.</li>
+      <li><b>Repetir uno reciente:</b> al registrar, un toque en «Mercado S/ 120» llena descripción, monto, categoría y quién pagó.</li>
+      <li><b>Ritmo de gasto:</b> cada tope muestra a qué altura del mes van, y la app avisa si una categoría, a este ritmo, se pasaría (y qué día).</li>
+      <li><b>Este mes frente a tu promedio:</b> qué categorías subieron y los gastos hormiga, en Inicio y en Presupuesto › Tendencias.</li>
+      <li><b>Dinero sin asignar:</b> en Presupuesto, ingresos menos topes y ahorro, para que cada sol tenga un destino.</li>
+      <li><b>Fondo de emergencia:</b> cuántos meses de gastos esenciales tienen cubiertos (la meta recomendada es 6). Se configura en Presupuesto.</li>
+      <li><b>Recordatorio para anotar:</b> a las 9 p. m. (o la hora que elijas en Avisos), solo si ese día no registraste nada.</li>
     </ul>`,
     botones: [{ l: 'Entendido', estilo: 'pri' }],
     cancelar: 'Cerrar'

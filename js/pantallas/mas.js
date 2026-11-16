@@ -109,6 +109,15 @@ const ingresos = {
 
 /* -------------------------------------------------------- Presupuesto --- */
 
+/** 3.5 · Suma de los topes y, si hay ingresos, cuánto queda sin asignar (P6), mientras se escriben. */
+function sumaTopesHtml(S, mes, suma) {
+  const ing = L.ingresoMes(S, mes);
+  if (!(ing > 0)) return `Presupuesto del mes: <strong>${esc(fmt0(suma))}</strong>`;
+  const libre = ing - suma;
+  return `Presupuesto del mes: <strong>${esc(fmt0(suma))}</strong> de ${esc(fmt0(ing))} de ingresos ·
+    <span class="${libre < -0.004 ? 'bad-t' : 'ok-t'}">${libre < -0.004 ? `${esc(fmt0(-libre))} por encima de los ingresos` : `${esc(fmt0(libre))} sin asignar`}</span>`;
+}
+
 const presupuesto = {
   vista(c) {
     const { S, mes, estado: e, admin } = c;
@@ -137,7 +146,7 @@ const presupuesto = {
       ${!admin ? alerta('info', 'Solo el administrador cambia los topes') : ''}
       ${admin && distintos ? `<section class="card sug34">${placa('regla', '#2F5D8A', 36)}<div class="row-m"><span class="row-t">Topes sugeridos</span><span class="row-s">Según lo que pagaron en ${sug.meses === 1 ? 'el mes anterior' : `los últimos ${sug.meses} meses`} (promedio por categoría, redondeado).</span></div><button type="button" class="btn sec mini" data-a="usar-topes">Usar todos</button></section>` : ''}
       <section class="card list">${filas.join('')}</section>
-      <p class="sum-l" id="sumaTopes">Presupuesto del mes: <strong>${esc(fmt0(suma))}</strong></p>
+      <p class="sum-l" id="sumaTopes">${sumaTopesHtml(S, mes, suma)}</p>
       ${admin ? '<div class="actions"><button class="btn pri" data-a="guardar">Guardar topes</button></div>' : ''}
     </main>`;
   },
@@ -145,7 +154,7 @@ const presupuesto = {
   alEscribir(c) {
     const suma = L.categorias(c.S).reduce((a, cat) => a + (parseMonto(c.estado['t_' + cat.id]) || 0), 0);
     const el = document.getElementById('sumaTopes');
-    if (el) el.innerHTML = `Presupuesto del mes: <strong>${esc(fmt0(suma))}</strong>`;
+    if (el) el.innerHTML = sumaTopesHtml(c.S, c.mes, suma);
   },
   acciones: {
     'usar-tope'(c, d) {
@@ -246,7 +255,7 @@ const ajustes = {
         <button class="btn ghost bad-t" data-a="desconectar">Desconectar y borrar datos de este celular</button>
         <p class="xs muted">Los datos de la hoja no se borran.</p>
       </section>
-      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 3.4${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
+      <p class="xs muted center" id="version">Presupuesto del Hogar · versión 3.5${!meta.demo && meta.ultimoSync ? ` · Code.gs ${esc(meta.codigoServidor || (num(meta.schemaServidor) >= 4 ? '1.4' : 'anterior'))}` : ''}</p>
       <p class="xs muted center">Copia en este celular: ${st.infoCopia().gastos} ${st.infoCopia().gastos === 1 ? 'gasto' : 'gastos'}, en ${esc(st.infoCopia().donde)}</p>
     </main>`;
   },
@@ -394,13 +403,13 @@ const apariencia = {
     material(c, d) { guardarTema({ material: d.v }); c.render(); },
     esquinas(c, d) { guardarTema({ esquinas: d.v }); c.render(); },
     concentrico(c, d) { guardarTema({ concentrico: d.v === '1' }); c.render(); },
-    'masc-ver'(c) { const v = !leerMascota().ver; guardarMascota({ ver: v }); c.render(); if (v) c.avisar('Sencillito pasea por Inicio, Gastos, Plan y Cuentas'); },
+    'masc-ver'(c) { const v = !leerMascota().ver; guardarMascota({ ver: v }); c.render(); if (v) c.avisar('Moti pasea por Inicio, Gastos, Plan y Cuentas'); },
     'masc-sonido'(c) { guardarMascota({ sonido: !leerMascota().sonido }); c.render(); },
     'masc-color'(c, d) { guardarMascota({ color: d.v }); c.render(); }
   }
 };
 
-/** 3.4 · Mascota: Sencillito, opcional y solo en este celular. */
+/** 3.4 · Mascota (3.4.3: Moti, el pug), opcional y solo en este celular. */
 function seccionMascota() {
   const m = leerMascota();
   const sig = m.monedas < UMBRAL_MASC[2] ? 2 : m.monedas < UMBRAL_MASC[3] ? 3 : null;
@@ -410,18 +419,18 @@ function seccionMascota() {
   return `<h3 class="dia">Mascota</h3>
   <section class="card masc-aj">
     <div class="masc-aj-cab">
-      <div class="masc-prev" style="--cr:${a};--cr-light:${l};--cr-dark:${d}">${svgDe(m.etapa)}</div>
-      <div class="row-m"><span class="row-t">${esc(NOMBRES_MASC[m.etapa])}, el perrito ahorrador</span>
-        <span class="xs muted">${m.ver ? `${esc(EDAD_MASC[m.etapa].charAt(0).toUpperCase() + EDAD_MASC[m.etapa].slice(1))} · ${m.monedas === 1 ? '1 moneda' : m.monedas + ' monedas'}` : 'Pasea sobre la barra de pestañas y te cuenta cómo va el mes.'}</span></div>
+      <div class="masc-prev" style="--cr:${a};--cr-light:${l};--cr-dark:${d}">${svgDe(m.etapa, 'sentado')}</div>
+      <div class="row-m"><span class="row-t">${esc(NOMBRES_MASC[m.etapa])}, el pug ahorrador</span>
+        <span class="xs muted">${m.ver ? `${esc(EDAD_MASC[m.etapa].charAt(0).toUpperCase() + EDAD_MASC[m.etapa].slice(1))} · ${m.monedas === 1 ? '1 moneda' : m.monedas + ' monedas'}` : 'Camina sobre la barra de pestañas, te sigue de pestaña en pestaña y te cuenta cómo va el mes.'}</span></div>
       <button type="button" class="interruptor" role="switch" aria-checked="${m.ver}" aria-label="Mostrar a la mascota" data-a="masc-ver"><span></span></button>
     </div>
     ${m.ver ? `<div class="masc-prog"><span class="track"><span class="fill ok" style="width:${prog}%"></span></span><span class="xs muted">${sig ? `${UMBRAL_MASC[sig] - m.monedas} ${UMBRAL_MASC[sig] - m.monedas === 1 ? 'moneda' : 'monedas'} para ${EDAD_MASC[sig]}` : 'Ya es adulto'}</span></div>
-    <div class="ajuste-fila sep"><span class="ajuste-t"><span>Ladridos</span><span class="xs muted">Suenan solo cuando lo tocas</span></span>
+    <div class="ajuste-fila sep"><span class="ajuste-t"><span>Ladridos</span><span class="xs muted">Ladra solo cuando lo tocas</span></span>
       <button type="button" class="interruptor" role="switch" aria-checked="${m.sonido}" aria-label="Ladridos" data-a="masc-sonido"><span></span></button></div>
-    <div class="ajuste-fila sep"><span class="ajuste-t"><span>Collar</span></span>
-      <span class="masc-cols" role="group" aria-label="Color del collar">${Object.entries(COLORES_MASC).map(([k, v]) => `<button type="button" class="masc-col${k === m.color ? ' on' : ''}" style="background:${v.c[0]}" data-a="masc-color" data-v="${k}" aria-pressed="${k === m.color}" aria-label="${esc(v.l)}"></button>`).join('')}</span></div>` : ''}
+    <div class="ajuste-fila sep"><span class="ajuste-t"><span>Pañuelo</span></span>
+      <span class="masc-cols" role="group" aria-label="Color del pañuelo">${Object.entries(COLORES_MASC).map(([k, v]) => `<button type="button" class="masc-col${k === m.color ? ' on' : ''}" style="background:${v.c[0]}" data-a="masc-color" data-v="${k}" aria-pressed="${k === m.color}" aria-label="${esc(v.l)}"></button>`).join('')}</span></div>` : ''}
   </section>
-  <p class="xs muted">Solo en este celular. Tócalo para que te cuente algo del mes, mantenlo presionado para acariciarlo y arrástralo para moverlo. Gana una moneda por cada gasto que anotas y crece: cachorro, joven y adulto. Se esconde al escribir y en las hojas.</p>`;
+  <p class="xs muted">Solo en este celular. Tócalo para que te cuente algo del mes, mantenlo presionado para acariciarlo y arrástralo para moverlo. Gana una moneda por cada gasto que anotas y crece: cachorro, joven (con medalla) y adulto (con su atado de ahorros). Cambia de postura: camina, saluda, celebra, duerme y te muestra su moneda. Se esconde al escribir y en las hojas.</p>`;
 }
 
 /** Celular en miniatura para elegir Claro u Oscuro (como en Ajustes › Pantalla y brillo). */

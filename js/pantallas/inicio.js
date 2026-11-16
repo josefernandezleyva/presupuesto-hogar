@@ -9,6 +9,7 @@ import { tituloGrande, tabbar, barra, alerta, dinero, dinero0, avatar, icono, an
 import { lineaSync, fraseSaldo, puntoCat, placaCat, placa, nombre, botonSync, sinMonto, marcarPagado, tarjetaProyeccion, tarjetaSobregiro } from './comun.js';
 import { soporte, MOTIVOS } from '../avisos.js';
 import { pendientes } from '../store.js';
+import { filaRitmo, marcaHoy, frasesSubidas, tarjetaFondo, accionesFondo } from './practicas.js';
 
 const corto = (p) => esc(p?.alias || String(p?.nombre || '').split(' ')[0] || '');
 
@@ -46,6 +47,11 @@ export default {
     const orden = { excede: 0, aviso: 1, ok: 2, sin_tope: 3 };
     const cats = r.porCategoria.filter((f) => f.usado > 0 || f.tope > 0).sort((a, b) => orden[a.estado] - orden[b.estado] || b.usado - a.usado);
     const visibles = c.estado.todas ? cats : cats.slice(0, 5);
+    // 3.5 · Ritmo por categoría (P8), este mes frente al promedio (P18) y fondo de emergencia (P14).
+    const enCurso = mes === mesActual();
+    const rit = enCurso ? L.ritmoCategorias(S, mes, hoy()) : null;
+    const comp = L.comparacionPromedio(S, mes, enCurso ? hoy() : null);
+    const fondo = L.fondoEmergencia(S, mes);
     const sop = soporte();
     const ofrecerAvisos = !meta.demo && meta.url && !meta.avisos && !meta.avisosNoOfrecer && (sop.ok || sop.motivo === 'inicio');
 
@@ -58,7 +64,8 @@ export default {
     const pC2 = Math.min(100 - Math.min(100, pG), pC);
     const novNuevas = nov.filter((n) => n.nueva).slice(0, 2);
     const excedidas = cats.filter((f) => f.estado === 'excede').slice(0, 2);
-    const nPend = prox.length + novNuevas.length + excedidas.length;
+    const rapidas = (rit?.alertas || []).slice(0, 2);
+    const nPend = prox.length + novNuevas.length + excedidas.length + rapidas.length;
     const hero = vacioMes ? `<section class="card hero vacio-mes">
         ${placa('mesNuevo', 'var(--accent)', 60)}
         <h2 class="h2">${esc(nombreMes(mes, { anio: false }))} empieza en cero</h2>
@@ -101,11 +108,13 @@ export default {
           </div>`;
         }).join('')}
         ${novNuevas.map((n) => itemNovedad(S, n)).join('')}
+        ${rapidas.map(filaRitmo).join('')}
         ${excedidas.map((f) => `<a class="row" href="#/analisis">${placa('excedido', '#B3362A', 36)}<span class="row-m"><span class="row-t">${esc(f.cat.nombre)} superó su tope</span><span class="row-s">${dinero0(f.usado)} de ${dinero0(f.tope)}</span></span>${icono('adelante', 18)}</a>`).join('')}
         ${sinVer > novNuevas.length ? `<a class="row" href="#/novedades">${placa('campana', '#2F5D8A', 36)}<span class="row-m"><span class="row-t">Ver las ${sinVer} novedades</span><span class="row-s">Gastos que registró la otra persona</span></span>${icono('adelante', 18)}</a>` : ''}
       </section>` : ''}
 
       ${!vacioMes && mes === mesActual() ? tarjetaProyeccion(L.proyeccionMes(S, mes, hoy()), mes) : ''}
+      ${tarjetaFondo(fondo, { compacta: true })}
 
       <a class="card saldo-card" href="#/cierre">
         <div class="saldo-avs">${trans.length ? avatar(L.persona(S, trans[0].de), 40) + `<span class="saldo-fl">${icono('adelante', 16)}</span>` + avatar(L.persona(S, trans[0].a), 40) : avatar(yo, 40)}</div>
@@ -129,11 +138,12 @@ export default {
 
       ${cats.length ? `<section class="card">
         <div class="split"><h2 class="h2">Dónde se va el dinero</h2>${cats.length > 5 ? `<button class="link" data-a="toggle" data-k="todas">${c.estado.todas ? 'Ver menos' : 'Ver todas'}</button>` : '<a class="link" href="#/analisis">Ver topes</a>'}</div>
+        ${frasesSubidas(comp)}
         ${visibles.map((f) => `
           <a class="catrow" href="#/gastos?cat=${esc(f.cat.id)}">
             <div class="split sm"><span>${puntoCat(f.cat)} ${esc(f.cat.nombre)}${f.tope > 0 ? ` <span class="${f.estado === 'excede' ? 'bad-t b' : f.estado === 'aviso' ? 'warn-t' : 'muted'} xs">${f.estado === 'excede' ? '▲ ' : ''}${esc(pct(f.pct))}</span>` : ''}</span>
             <span class="muted num">${dinero0(f.usado)}${f.tope > 0 ? ' de ' + dinero0(f.tope) : ''}</span></div>
-            ${f.tope > 0 ? barra(f.pct, f.estado) : ''}
+            ${f.tope > 0 ? barra(f.pct, f.estado, marcaHoy(rit)) : ''}
           </a>`).join('')}
       </section>` : ''}
     </main>${tabbar('inicio')}`;
@@ -142,7 +152,8 @@ export default {
     confirmar(c, d) {
       marcarPagado(c, d.id); // 3.2: si no tiene monto, primero pregunta cuánto fue
     },
-    'no-ofrecer'(c) { c.setMeta({ avisosNoOfrecer: true }); c.render(); }
+    'no-ofrecer'(c) { c.setMeta({ avisosNoOfrecer: true }); c.render(); },
+    ...accionesFondo
   }
 };
 

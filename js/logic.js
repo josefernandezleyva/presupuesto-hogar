@@ -841,3 +841,161 @@ export function calendarioMes(S, mes) {
   dias.forEach((l) => l.sort((a, b) => (a.estado === b.estado ? num(b.monto_soles) - num(a.monto_soles) : a.estado === ESTADO.PROG ? -1 : 1)));
   return dias;
 }
+
+/* ------------------------------------------------------- 3.5 · Mejores prácticas --- */
+
+const sinPlanConf = (S, mes, hoyStr) => gastosMes(S, mes, [ESTADO.CONF]).filter((g) => !g.plan_id && (!hoyStr || String(g.fecha) <= hoyStr));
+
+/**
+ * P3 · Los últimos gastos distintos para repetirlos con un toque (descripción, monto, moneda, categoría y quién pagó).
+ * Solo pagos únicos con monto y categoría activa; se ordenan por cuándo se registraron.
+ */
+export function recientes(S, { max = 5 } = {}) {
+  const activas = new Set(categorias(S).map((c) => c.id));
+  const vistos = new Set();
+  const out = [];
+  const lista = (S.Gastos || []).filter((g) => g.estado !== ESTADO.ANUL && Number(g.eliminado) !== 1 && !g.plan_id && num(g.monto) > 0 && activas.has(g.categoria_id) && String(g.nota || '').trim())
+    .sort((a, b) => String(b.creado_en || '').localeCompare(String(a.creado_en || '')) || String(b.fecha || '').localeCompare(String(a.fecha || '')));
+  for (const g of lista) {
+    const k = [norm(g.nota), g.categoria_id, r2(num(g.monto)), g.moneda || 'PEN'].join('|');
+    if (vistos.has(k)) continue;
+    vistos.add(k);
+    out.push({ id: g.id, nota: String(g.nota).replace(/\s+/g, ' ').trim(), monto: num(g.monto), moneda: g.moneda || 'PEN', categoria_id: g.categoria_id, pagado_por: g.pagado_por });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * P6 · Dinero sin asignar (presupuesto base cero): ingresos − topes. Los topes de categorías de naturaleza
+ * «Ahorro» cuentan como ahorro planificado. null si no hay ingresos registrados.
+ */
+export function sinAsignar(S, mes) {
+  const ingreso = ingresoMes(S, mes);
+  if (!(ingreso > 0)) return null;
+  let ahorro = 0, gastos = 0;
+  categorias(S).forEach((c) => { const t = tope(S, mes, c.id); if (c.naturaleza === 'Ahorro') ahorro += t; else gastos += t; });
+  ahorro = r2(ahorro); gastos = r2(gastos);
+  const presupuesto = r2(ahorro + gastos);
+  return { ingreso, gastos, ahorro, presupuesto, libre: r2(ingreso - presupuesto), pctAsignado: ingreso > 0 ? presupuesto / ingreso * 100 : 0 };
+}
+
+/**
+ * P8 · Ritmo de gasto por categoría en el mes en curso. Los pagos con plan (mensuales y cuotas), los de tipo Fijo
+ * y lo programado cuentan enteros; el gasto del día a día se proyecta a su ritmo hasta fin de mes. Avisa las categorías que,
+ * a ese ritmo, pasarían su tope (sin haberlo pasado aún), con el día en que lo pasarían.
+ */
+export function ritmoCategorias(S, mes, hoyStr) {
+  if (!hoyStr || hoyStr.slice(0, 7) !== mes) return { pctMes: null, filas: [], alertas: [] };
+  const dia = Number(hoyStr.slice(8, 10));
+  const total = diasEnMes(mes);
+  const pctMes = dia / total * 100;
+  const porCat = new Map();
+  const add = (id, k, v) => { const o = porCat.get(id) || { fijo: 0, variable: 0 }; o[k] += v; porCat.set(id, o); };
+  gastosMes(S, mes).forEach((g) => {
+    const m = num(g.monto_soles);
+    if (g.plan_id || g.estado === ESTADO.PROG || String(g.fecha) > hoyStr || tipoGasto(S, g) === 'Fijo') add(g.categoria_id, 'fijo', m);
+    else add(g.categoria_id, 'variable', m);
+  });
+  const filas = [];
+  porCat.forEach((v, id) => {
+    const t = tope(S, mes, id);
+    const cat = categoria(S, id);
+    if (!cat || !(t > 0)) return;
+    const usado = r2(v.fijo + v.variable);
+    const ritmo = dia > 0 ? v.variable / dia : 0;
+    const proyectado = r2(v.fijo + ritmo * total);
+    let diaCruce = null;
+    if (usado <= t + 0.004 && proyectado > t + 0.004 && ritmo > 0) diaCruce = Math.min(total, Math.max(dia + 1, Math.ceil((t - v.fijo) / ritmo)));
+    filas.push({ cat, tope: t, usado, pctTope: usado / t * 100, pctMes, fijo: r2(v.fijo), variable: r2(v.variable), proyectado, exceso: r2(proyectado - t), diaCruce });
+  });
+  // Solo es confiable desde el día 5 y cuando lo gastado ya supera lo esperado a esta altura del mes.
+  const alertas = dia >= 5 ? filas.filter((f) => f.diaCruce && f.pctTope > pctMes + 5 && f.exceso >= Math.max(10, f.tope * 0.05)).sort((a, b) => a.diaCruce - b.diaCruce) : [];
+  return { dia, pctMes, filas, alertas };
+}
+
+/**
+ * P18 · Este mes frente al promedio de los 3 meses anteriores con gastos, por categoría.
+ * En el mes en curso compara a la misma altura del mes (del día 1 a hoy), para no castigar un mes a medias.
+ * Incluye los gastos hormiga (pagos únicos de menos de S/ 20) con su proyección al año.
+ */
+export function comparacionPromedio(S, mes, hoyStr, { n = 3, hormiga = 20 } = {}) {
+  const enCurso = !!hoyStr && hoyStr.slice(0, 7) === mes;
+  const dia = enCurso ? Number(hoyStr.slice(8, 10)) : 31;
+  const hasta = (g) => Number(String(g.fecha).slice(8, 10)) <= dia;
+  const previos = [];
+  for (let k = 1; k <= 12 && previos.length < n; k++) {
+    const m = sumarMeses(mes, -k);
+    if (gastosMes(S, m, [ESTADO.CONF]).length) previos.push(m);
+  }
+  const sumar = (lista) => { const out = new Map(); lista.forEach((g) => out.set(g.categoria_id, (out.get(g.categoria_id) || 0) + num(g.monto_soles))); return out; };
+  const actual = sumar(gastosMes(S, mes).filter(hasta));
+  const prom = new Map();
+  previos.forEach((m) => sumar(gastosMes(S, m, [ESTADO.CONF]).filter(hasta)).forEach((v, k) => prom.set(k, (prom.get(k) || 0) + v / previos.length)));
+  const ids = new Set([...actual.keys(), ...prom.keys()]);
+  const filas = [...ids].map((id) => {
+    const a = r2(actual.get(id) || 0), p = r2(prom.get(id) || 0);
+    return { cat: categoria(S, id), actual: a, promedio: p, delta: r2(a - p), pct: p > 0 ? (a - p) / p * 100 : null };
+  }).filter((f) => f.cat).sort((x, y) => y.delta - x.delta);
+  const subidas = previos.length ? filas.filter((f) => f.promedio > 0 && f.delta >= 30 && f.pct >= 20).slice(0, 2) : [];
+  const chicos = sinPlanConf(S, mes, enCurso ? hoyStr : null).filter((g) => num(g.monto_soles) > 0 && num(g.monto_soles) < hormiga);
+  const sumaH = r2(chicos.reduce((a, g) => a + num(g.monto_soles), 0));
+  const alAnio = enCurso ? (dia > 0 ? sumaH / dia * 365 : 0) : sumaH * 12;
+  return {
+    meses: previos, enCurso, dia, filas, subidas,
+    hormiga: { limite: hormiga, n: chicos.length, total: sumaH, alAnio: Math.round(alAnio / 10) * 10 }
+  };
+}
+
+/** Variación de una categoría frente al promedio, para mostrar junto a su monto (null si no hay con qué comparar o es pequeña). */
+export function variacionCat(comp, catId) {
+  const f = comp?.meses?.length ? comp.filas.find((x) => x.cat?.id === catId) : null;
+  if (!f || f.pct === null || Math.abs(f.pct) < 10 || Math.abs(f.delta) < 10) return null;
+  return { sube: f.delta > 0, pct: Math.abs(f.pct), delta: Math.abs(f.delta) };
+}
+
+/**
+ * P14 · Fondo de emergencia. Se configura en Config: la categoría donde se registran los aportes, el saldo que ya
+ * había (y desde qué fecha) y la meta en meses. Saldo = saldo inicial + aportes pagados desde esa fecha.
+ * Gasto esencial = promedio de lo pagado en categorías «Necesidad» en los 3 meses anteriores con gastos
+ * (o, sin historia, la suma de sus topes).
+ */
+/** P1 · Hora del recordatorio diario para anotar de una persona (21 por defecto; null si lo apagó). */
+export function horaAnotar(S, pid) {
+  const v = String(config(S, `anotar_${pid}`, '21') || '21');
+  return v === 'no' ? null : (Number(v) || 21);
+}
+
+export const FONDO = { cat: 'fondo_categoria', base: 'fondo_saldo', desde: 'fondo_desde', meta: 'fondo_meta_meses' };
+export function fondoEmergencia(S, mes) {
+  const catId = String(config(S, FONDO.cat, '') || '');
+  const cat = catId ? categoria(S, catId) : null;
+  const metaMeses = Math.max(1, Math.round(num(config(S, FONDO.meta, 6)) || 6));
+  const previos = [];
+  for (let k = 1; k <= 12 && previos.length < 3; k++) {
+    const m = sumarMeses(mes, -k);
+    if (gastosMes(S, m, [ESTADO.CONF]).length) previos.push(m);
+  }
+  const esNecesidad = (g) => categoria(S, g.categoria_id)?.naturaleza === 'Necesidad';
+  let esencial = previos.length ? previos.reduce((a, m) => a + gastosMes(S, m, [ESTADO.CONF]).filter(esNecesidad).reduce((s, g) => s + num(g.monto_soles), 0), 0) / previos.length : 0;
+  let base = 'promedio';
+  if (!(esencial > 0)) {
+    esencial = categorias(S).filter((c) => c.naturaleza === 'Necesidad').reduce((a, c) => a + tope(S, mes, c.id), 0);
+    base = 'topes';
+  }
+  esencial = r2(esencial);
+  if (!cat) return { configurado: false, esencial, base, metaMeses };
+  const inicial = num(config(S, FONDO.base, 0));
+  const desde = String(config(S, FONDO.desde, '') || '');
+  const aportes = r2((S.Gastos || []).filter((g) => g.categoria_id === catId && g.estado === ESTADO.CONF && Number(g.eliminado) !== 1 && (!desde || String(g.fecha) > desde))
+    .reduce((a, g) => a + num(g.monto_soles), 0));
+  const saldo = r2(inicial + aportes);
+  const meta = r2(esencial * metaMeses);
+  const meses = esencial > 0 ? saldo / esencial : null;
+  const falta = r2(Math.max(0, meta - saldo));
+  return {
+    configurado: true, cat, inicial, desde, aportes, saldo, esencial, base, metaMeses, meta, meses,
+    pct: meta > 0 ? Math.min(100, saldo / meta * 100) : 0, falta,
+    aporteSugerido: falta > 0 ? Math.ceil(falta / 12 / 10) * 10 : 0, completo: meta > 0 && saldo >= meta - 0.004
+  };
+}
